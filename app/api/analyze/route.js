@@ -18,21 +18,6 @@ function detectSource(url) {
 }
 
 async function scrapeUrl(url) {
-  if (url.includes("reddit.com")) {
-    const jsonUrl = url.replace(/\/?$/, ".json") + "?limit=100";
-    const res = await fetch(jsonUrl, {
-      headers: { "User-Agent": "sentiment-poc/0.1" },
-    });
-    const data = await res.json();
-    const post = data[0]?.data?.children[0]?.data;
-    const comments = data[1]?.data?.children || [];
-    const commentText = comments
-      .map((c) => c.data?.body)
-      .filter(Boolean)
-      .join("\n\n");
-    return `POST: ${post?.title}\n\n${post?.selftext}\n\nCOMMENTS:\n${commentText}`;
-  }
-
   const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
     method: "POST",
     headers: {
@@ -42,7 +27,7 @@ async function scrapeUrl(url) {
     body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
   });
   const data = await res.json();
-  if (!data.success) throw new Error(`Firecrawl error: ${JSON.stringify(data)}`);
+  if (!data.success) throw new Error(`Scraping failed: ${data.error}`);
   return data.data?.markdown || "";
 }
 
