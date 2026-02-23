@@ -7,6 +7,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
+// Firecrawl handles all URLs including Reddit on Vercel
+
 function detectSource(url) {
   if (url.includes("reddit.com")) return "reddit";
   if (url.includes("g2.com")) return "g2";
