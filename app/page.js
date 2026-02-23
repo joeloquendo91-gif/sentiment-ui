@@ -211,7 +211,12 @@ export default function Home() {
 
   return (
     <main style={{ maxWidth: 800, margin: "0 auto", padding: "40px 20px", fontFamily: "sans-serif" }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Sentiment Analyzer</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+  <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>Sentiment Analyzer</h1>
+  <a href="/dashboard" style={{ padding: "10px 20px", background: "#f1f5f9", color: "#334155", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 14 }}>
+    View Dashboard →
+  </a>
+</div>
       <p style={{ color: "#64748b", marginBottom: 24 }}>Analyze sentiment from G2, Capterra, Trustpilot and more</p>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
