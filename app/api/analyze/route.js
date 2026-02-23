@@ -18,6 +18,28 @@ function detectSource(url) {
 }
 
 async function scrapeUrl(url) {
+  // Reddit has a free JSON API that works if we use a browser user agent
+  if (url.includes("reddit.com")) {
+    const jsonUrl = url.replace(/\/?$/, ".json") + "?limit=100";
+    const res = await fetch(jsonUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+      },
+    });
+    const text = await res.text();
+    if (text.startsWith("<")) throw new Error("Reddit blocked the request");
+    const data = JSON.parse(text);
+    const post = data[0]?.data?.children[0]?.data;
+    const comments = data[1]?.data?.children || [];
+    const commentText = comments
+      .map((c) => c.data?.body)
+      .filter(Boolean)
+      .join("\n\n");
+    return `POST: ${post?.title}\n\n${post?.selftext}\n\nCOMMENTS:\n${commentText}`;
+  }
+
+  // Firecrawl for G2, Capterra, etc.
   const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
     method: "POST",
     headers: {
