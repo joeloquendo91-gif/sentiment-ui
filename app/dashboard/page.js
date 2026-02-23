@@ -1,4 +1,4 @@
-// v2
+// v3
 "use client";
 import { useState, useEffect } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
@@ -14,10 +14,7 @@ const sentimentColor = {
 };
 
 async function fetchAnalyses() {
-  const res = await fetch(
-    `${supabaseUrl}/rest/v1/analyses?select=*&order=created_at.desc`,
-    { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } }
-  );
+  const res = await fetch("/api/analyses");
   return res.json();
 }
 
