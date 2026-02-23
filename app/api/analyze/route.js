@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
-
+export const maxDuration = 60;
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -116,6 +116,33 @@ export async function POST(request) {
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
     return Response.json({ success: true, url, source_type: sourceType, ...analysis });
+  } catch (err) {
+    return Response.json({ error: err.message }, { status: 500 });
+  }
+}
+export async function PUT(request) {
+  try {
+    const { urls } = await request.json();
+    if (!urls || !urls.length) return Response.json({ error: "URLs are required" }, { status: 400 });
+
+    const results = [];
+    for (const url of urls) {
+      try {
+        const sourceType = detectSource(url);
+        const rawText = await scrapeUrl(url);
+        if (!rawText || rawText.length < 100) {
+          results.push({ url, error: "Not enough content extracted" });
+          continue;
+        }
+        const analysis = await analyzeContent(rawText, sourceType);
+        await supabase.from("analyses").insert({ url, source_type: sourceType, ...analysis });
+        results.push({ url, source_type: sourceType, ...analysis });
+      } catch (err) {
+        results.push({ url, error: err.message });
+      }
+    }
+
+    return Response.json({ success: true, results });
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 });
   }
