@@ -9,7 +9,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-async function analyzeText(text, label, retries = 3) {
+async function analyzeText(text, label) {
   const truncated = text.slice(0, 10000);
 
   const prompt = `You are a brand sentiment analyst. Analyze the following customer reviews for "${label}" and return ONLY valid JSON with no markdown, no code blocks, no explanation.
@@ -34,33 +34,25 @@ Reviews:
 ${truncated}
 ---`;
 
-  try {
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1024,
-      messages: [{ role: "user", content: prompt }],
-    });
+  const message = await anthropic.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 1024,
+    messages: [{ role: "user", content: prompt }],
+  });
 
-    const raw = message.content[0].text;
-    try {
-      return JSON.parse(raw);
-    } catch {
-      const match = raw.match(/\{[\s\S]*\}/);
-      if (match) return JSON.parse(match[0]);
-      throw new Error("Failed to parse Claude response");
-    }
-  } catch (err) {
-    if (retries > 0 && (err.status === 529 || err.status === 529 || err.message?.includes("overloaded"))) {
-      await new Promise((r) => setTimeout(r, 5000));
-      return analyzeText(text, label, retries - 1);
-    }
-    throw err;
+  const raw = message.content[0].text;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error("Failed to parse Claude response");
   }
 }
 
 export async function POST(request) {
   try {
-    const { text, label, source, reviewCount } = await request.json();
+    const { text, label, source, reviewCount, project_name } = await request.json();
 
     if (!text) return Response.json({ error: "Text is required" }, { status: 400 });
 
@@ -70,6 +62,7 @@ export async function POST(request) {
     const { error } = await supabase.from("analyses").insert({
       url: `csv_upload:${label}`,
       source_type: source || "csv_upload",
+      project_name: project_name || "default",
       ...analysis,
     });
 
@@ -79,6 +72,7 @@ export async function POST(request) {
       success: true,
       location: label,
       reviewCount,
+      project_name: project_name || "default",
       ...analysis,
     });
   } catch (err) {
