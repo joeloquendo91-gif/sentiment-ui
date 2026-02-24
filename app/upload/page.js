@@ -1,4 +1,4 @@
-// v3
+// v4
 "use client";
 import { useState, useRef } from "react";
 
@@ -37,32 +37,39 @@ const GROUP_OPTIONS = [
 ];
 
 function parseCSV(text) {
-  const lines = text.split("\n").filter((l) => l.trim());
-  if (lines.length < 2) return [];
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-  function parseLine(line) {
-    const result = [];
+  function parseAllRows(str) {
+    const rows = [];
+    let row = [];
     let current = "";
     let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      if (line[i] === '"') {
-        inQuotes = !inQuotes;
-      } else if (line[i] === "," && !inQuotes) {
-        result.push(current.trim());
-        current = "";
-      } else {
-        current += line[i];
+    let i = 0;
+    while (i < str.length) {
+      const ch = str[i];
+      if (ch === '"') {
+        if (inQuotes && str[i + 1] === '"') { current += '"'; i += 2; continue; }
+        inQuotes = !inQuotes; i++; continue;
       }
+      if (ch === "," && !inQuotes) { row.push(current); current = ""; i++; continue; }
+      if (ch === "\n" && !inQuotes) {
+        row.push(current); current = "";
+        if (row.some((c) => c.trim())) rows.push(row);
+        row = []; i++; continue;
+      }
+      current += ch; i++;
     }
-    result.push(current.trim());
-    return result;
+    row.push(current);
+    if (row.some((c) => c.trim())) rows.push(row);
+    return rows;
   }
 
-  const headers = parseLine(lines[0]);
-  return lines.slice(1).map((line) => {
-    const values = parseLine(line);
+  const allRows = parseAllRows(normalized);
+  if (allRows.length < 2) return [];
+  const headers = allRows[0].map((h) => h.trim());
+  return allRows.slice(1).map((values) => {
     const obj = {};
-    headers.forEach((h, i) => { obj[h.trim()] = values[i] || ""; });
+    headers.forEach((h, idx) => { obj[h] = (values[idx] || "").trim(); });
     return obj;
   });
 }
@@ -75,10 +82,10 @@ function groupRows(rows, groupBy) {
 
     switch (groupBy) {
       case "region":
-        key = row["Region"] || row["Division"] || business || "Unknown Region";
+        key = row["Region"]?.trim() || "Unknown Region";
         break;
       case "division":
-        key = row["Division"] || row["Region"] || business || "Unknown Division";
+        key = row["Division"]?.trim() || "Unknown Division";
         break;
       case "state":
         key = row["State"] || "Unknown State";
@@ -140,7 +147,7 @@ export default function UploadPage() {
     if (rows.length > 0) {
       const groups = groupRows(rows, newGroupBy);
       setLocationGroups(groups);
-      setSelectedLocations(Object.keys(groups));
+      setSelectedLocations([]);
     }
   }
 
