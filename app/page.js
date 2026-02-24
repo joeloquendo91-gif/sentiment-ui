@@ -1,4 +1,4 @@
-//v3
+//v4
 "use client";
 import { useState, useEffect } from "react";
 
@@ -182,6 +182,7 @@ function BatchSummary({ results }) {
 
 export default function Home() {
   const [mode, setMode] = useState("single");
+  const [projectName, setProjectName] = useState("");
   const [url, setUrl] = useState("");
   const [batchUrls, setBatchUrls] = useState("");
   const [loading, setLoading] = useState(false);
@@ -197,7 +198,7 @@ export default function Home() {
     if (!url) return;
     setLoading(true); setError(null); setResult(null);
     try {
-      const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
+      const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, project_name: projectName || "default" }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setResult(data);
@@ -211,7 +212,7 @@ export default function Home() {
     setLoading(true); setError(null); setBatchResults(null);
     setProgress("Analyzing " + urls.length + " sources...");
     try {
-      const res = await fetch("/api/analyze", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls }) });
+      const res = await fetch("/api/analyze", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls, project_name: projectName || "default" }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setBatchResults(data.results);
@@ -329,18 +330,33 @@ export default function Home() {
                 background: "white", border: "1px solid #e8e8e5", borderRadius: 16, padding: 20,
                 boxShadow: "0 1px 4px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.04)",
               }}>
-                <div style={{ display: "flex", gap: 2, marginBottom: 14, background: "#f4f4f2", padding: 3, borderRadius: 8, width: "fit-content", border: "1px solid #e8e8e5" }}>
-                  {["single", "batch"].map((m) => (
-                    <button key={m} className="mode-btn" onClick={() => setMode(m)} style={{
-                      padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer",
-                      background: mode === m ? "white" : "transparent",
-                      color: mode === m ? "#111110" : "#a8a89e",
-                      fontWeight: 500, fontSize: 12, fontFamily: "'Geist', sans-serif",
-                      boxShadow: mode === m ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                    }}>
-                      {m === "single" ? "Single URL" : "Batch"}
-                    </button>
-                  ))}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <div style={{ display: "flex", gap: 2, background: "#f4f4f2", padding: 3, borderRadius: 8, width: "fit-content", border: "1px solid #e8e8e5" }}>
+                    {["single", "batch"].map((m) => (
+                      <button key={m} className="mode-btn" onClick={() => setMode(m)} style={{
+                        padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer",
+                        background: mode === m ? "white" : "transparent",
+                        color: mode === m ? "#111110" : "#a8a89e",
+                        fontWeight: 500, fontSize: 12, fontFamily: "'Geist', sans-serif",
+                        boxShadow: mode === m ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                      }}>
+                        {m === "single" ? "Single URL" : "Batch"}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Project name (optional)"
+                    value={projectName}
+                    onChange={(e) => setProjectName(e.target.value)}
+                    style={{
+                      padding: "5px 12px", borderRadius: 6, border: "1px solid #e8e8e5",
+                      background: "#fafaf9", color: "#111110", fontSize: 12,
+                      fontFamily: "'Geist Mono', monospace", width: 200, outline: "none",
+                    }}
+                    onFocus={(e) => { e.target.style.borderColor = "#2563eb"; }}
+                    onBlur={(e) => { e.target.style.borderColor = "#e8e8e5"; }}
+                  />
                 </div>
 
                 {mode === "single" && (
