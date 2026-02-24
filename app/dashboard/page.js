@@ -1,16 +1,23 @@
-// v3
 "use client";
 import { useState, useEffect } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
 const sentimentColor = {
-  positive: "#22c55e",
-  negative: "#ef4444",
-  mixed: "#f59e0b",
-  neutral: "#94a3b8",
+  positive: "#16a34a",
+  negative: "#dc2626",
+  mixed: "#d97706",
+  neutral: "#6b7280",
+};
+
+const C = {
+  bg: "#fafaf9",
+  bgCard: "#ffffff",
+  bgMuted: "#f4f4f2",
+  border: "#e8e8e5",
+  blue: "#2563eb",
+  textPrimary: "#111110",
+  textSecondary: "#6b6b63",
+  textDim: "#a8a89e",
 };
 
 async function fetchAnalyses() {
@@ -26,32 +33,50 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchAnalyses().then((data) => {
-      setAnalyses(Array.isArray(data) ? data : []);
-      setLoading(false);
-    });
+    fetchAnalyses()
+      .then((data) => setAnalyses(Array.isArray(data) ? data : []))
+      .catch(() => setAnalyses([]))
+      .finally(() => setLoading(false));
   }, []);
+
+  const styles = `
+    @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap');
+    * { box-sizing: border-box; }
+    body { background: #fafaf9; margin: 0; }
+    .nav-link:hover { border-color: #d0d0cb !important; color: #111110 !important; }
+    .analyze-btn:hover { background: #333 !important; }
+    .row-hover:hover { background: #f8f8f6 !important; }
+  `;
 
   if (loading) {
     return (
-      <main style={{ maxWidth: 900, margin: "0 auto", padding: "40px 20px", fontFamily: "sans-serif" }}>
-        <div style={{ textAlign: "center", padding: 48, color: "#64748b" }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
-          <p>Loading analyses...</p>
+      <>
+        <style>{styles}</style>
+        <Nav />
+        <div style={{ textAlign: "center", padding: "80px 24px", fontFamily: "'Geist', sans-serif" }}>
+          <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 12, color: C.blue, marginBottom: 8 }}>loading...</div>
+          <p style={{ color: C.textDim, fontSize: 14 }}>Fetching your analyses</p>
         </div>
-      </main>
+      </>
     );
   }
 
   if (!analyses.length) {
     return (
-      <main style={{ maxWidth: 900, margin: "0 auto", padding: "40px 20px", fontFamily: "sans-serif" }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Dashboard</h1>
-        <div style={{ textAlign: "center", padding: 48, color: "#64748b", background: "#f8fafc", borderRadius: 12 }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>📭</div>
-          <p>No analyses yet. <a href="/" style={{ color: "#6366f1" }}>Analyze some URLs first</a></p>
+      <>
+        <style>{styles}</style>
+        <Nav />
+        <div style={{ maxWidth: 600, margin: "80px auto", textAlign: "center", padding: "0 24px", fontFamily: "'Geist', sans-serif" }}>
+          <div style={{ padding: 48, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 32, marginBottom: 16 }}>📭</div>
+            <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 22, fontWeight: 700, color: C.textPrimary, marginBottom: 8 }}>No analyses yet</h2>
+            <p style={{ color: C.textSecondary, fontSize: 14, marginBottom: 24 }}>Analyze some URLs to see your intelligence dashboard.</p>
+            <a href="/" style={{ padding: "10px 20px", background: C.textPrimary, color: "white", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 13, fontFamily: "'Geist', sans-serif" }}>
+              Analyze URLs →
+            </a>
+          </div>
         </div>
-      </main>
+      </>
     );
   }
 
@@ -94,160 +119,190 @@ export default function Dashboard() {
     .map(([name, count]) => ({ name, count }));
 
   return (
-    <main style={{ maxWidth: 900, margin: "0 auto", padding: "40px 20px", fontFamily: "sans-serif" }}>
+    <>
+      <style>{styles}</style>
+      <Nav />
 
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 32 }}>
-        <div>
-          <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>Sentiment Dashboard</h1>
-          <p style={{ color: "#64748b", margin: "4px 0 0" }}>{analyses.length} analyses across {Object.keys(sourceCounts).length} sources</p>
-        </div>
-        <a href="/" style={{ padding: "10px 20px", background: "#6366f1", color: "white", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 14 }}>
-          + Analyze More
-        </a>
-      </div>
+      <main style={{ maxWidth: 960, margin: "0 auto", padding: "48px 24px 80px", fontFamily: "'Geist', sans-serif" }}>
 
-      {/* KPI Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
-        <div style={{ padding: 20, background: "white", borderRadius: 12, border: "1px solid #e2e8f0", textAlign: "center" }}>
-          <div style={{ fontSize: 32, fontWeight: 700, color: "#6366f1" }}>{avgScore}</div>
-          <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Avg Sentiment Score</div>
-        </div>
-        <div style={{ padding: 20, background: "white", borderRadius: 12, border: "1px solid #e2e8f0", textAlign: "center" }}>
-          <div style={{ fontSize: 32, fontWeight: 700, color: "#22c55e" }}>{sentimentCounts.positive || 0}</div>
-          <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Positive</div>
-        </div>
-        <div style={{ padding: 20, background: "white", borderRadius: 12, border: "1px solid #e2e8f0", textAlign: "center" }}>
-          <div style={{ fontSize: 32, fontWeight: 700, color: "#f59e0b" }}>{sentimentCounts.mixed || 0}</div>
-          <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Mixed</div>
-        </div>
-        <div style={{ padding: 20, background: "white", borderRadius: 12, border: "1px solid #e2e8f0", textAlign: "center" }}>
-          <div style={{ fontSize: 32, fontWeight: 700, color: "#ef4444" }}>{sentimentCounts.negative || 0}</div>
-          <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Negative</div>
-        </div>
-      </div>
-
-      {/* Charts Row */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
-
-        {/* Sentiment Pie */}
-        <div style={{ padding: 20, background: "white", borderRadius: 12, border: "1px solid #e2e8f0" }}>
-          <div style={{ fontWeight: 600, marginBottom: 16 }}>Sentiment Breakdown</div>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie data={sentimentPieData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                {sentimentPieData.map((entry) => (
-                  <Cell key={entry.name} fill={sentimentColor[entry.name] || "#94a3b8"} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Top Themes Bar */}
-        <div style={{ padding: 20, background: "white", borderRadius: 12, border: "1px solid #e2e8f0" }}>
-          <div style={{ fontWeight: 600, marginBottom: 16 }}>Top Themes</div>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={topThemes} layout="vertical">
-              <XAxis type="number" hide />
-              <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Bar dataKey="count" fill="#6366f1" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Competitors + Sources Row */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
-
-        {/* Competitors */}
-        {topCompetitors.length > 0 && (
-          <div style={{ padding: 20, background: "white", borderRadius: 12, border: "1px solid #e2e8f0" }}>
-            <div style={{ fontWeight: 600, marginBottom: 16 }}>Competitors Mentioned</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {topCompetitors.map(([name, count]) => (
-                <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 14, color: "#334155" }}>{name}</span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "#6366f1", background: "#eef2ff", padding: "2px 10px", borderRadius: 20 }}>{count}</span>
-                </div>
-              ))}
-            </div>
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 40 }}>
+          <div>
+            <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 30, fontWeight: 700, color: C.textPrimary, letterSpacing: "-0.02em", margin: 0 }}>
+              Intelligence Dashboard
+            </h1>
+            <p style={{ color: C.textDim, margin: "6px 0 0", fontSize: 14, fontFamily: "'Geist Mono', monospace" }}>
+              {analyses.length} analyses · {Object.keys(sourceCounts).length} sources
+            </p>
           </div>
-        )}
-
-        {/* Sources */}
-        <div style={{ padding: 20, background: "white", borderRadius: 12, border: "1px solid #e2e8f0" }}>
-          <div style={{ fontWeight: 600, marginBottom: 16 }}>Sources Analyzed</div>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={sourceBarData}>
-              <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip />
-              <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <a href="/" className="analyze-btn" style={{
+            padding: "9px 18px", background: C.textPrimary, color: "white",
+            borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 13,
+            transition: "all 0.15s",
+          }}>
+            + Analyze More
+          </a>
         </div>
-      </div>
 
-      {/* Pain Points + Praise */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
-        <div style={{ padding: 20, background: "#fef2f2", borderRadius: 12, border: "1px solid #fecaca" }}>
-          <div style={{ fontWeight: 600, marginBottom: 12 }}>Top Pain Points</div>
-          <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 6 }}>
-            {allPainPoints.slice(0, 8).map((p, i) => (
-              <li key={i} style={{ color: "#7f1d1d", fontSize: 13 }}>{p}</li>
-            ))}
-          </ul>
+        {/* KPI Cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+          {[
+            { label: "Avg Score", value: avgScore, color: C.blue },
+            { label: "Positive", value: sentimentCounts.positive || 0, color: "#16a34a" },
+            { label: "Mixed", value: sentimentCounts.mixed || 0, color: "#d97706" },
+            { label: "Negative", value: sentimentCounts.negative || 0, color: "#dc2626" },
+          ].map((kpi) => (
+            <div key={kpi.label} style={{ padding: 20, background: C.bgCard, borderRadius: 12, border: `1px solid ${C.border}`, textAlign: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+              <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 30, fontWeight: 700, color: kpi.color }}>{kpi.value}</div>
+              <div style={{ fontSize: 12, color: C.textDim, marginTop: 4, fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", letterSpacing: "0.05em" }}>{kpi.label}</div>
+            </div>
+          ))}
         </div>
-        <div style={{ padding: 20, background: "#f0fdf4", borderRadius: 12, border: "1px solid #bbf7d0" }}>
-          <div style={{ fontWeight: 600, marginBottom: 12 }}>Top Praise Points</div>
-          <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 6 }}>
-            {allPraisePoints.slice(0, 8).map((p, i) => (
-              <li key={i} style={{ color: "#14532d", fontSize: 13 }}>{p}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
 
-      {/* Recent Analyses Table */}
-      <div style={{ padding: 20, background: "white", borderRadius: 12, border: "1px solid #e2e8f0" }}>
-        <div style={{ fontWeight: 600, marginBottom: 16 }}>Recent Analyses</div>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid #e2e8f0" }}>
-              <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontWeight: 600 }}>URL</th>
-              <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontWeight: 600 }}>Source</th>
-              <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontWeight: 600 }}>Sentiment</th>
-              <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontWeight: 600 }}>Score</th>
-              <th style={{ textAlign: "left", padding: "8px 0", color: "#64748b", fontWeight: 600 }}>Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {analyses.slice(0, 15).map((a) => (
-              <tr key={a.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                <td style={{ padding: "10px 0", maxWidth: 280 }}>
-                  <a href={a.url} target="_blank" rel="noreferrer" style={{ color: "#6366f1", textDecoration: "none", fontSize: 12 }}>
-                    {a.url.replace("https://", "").slice(0, 50)}{a.url.length > 58 ? "..." : ""}
-                  </a>
-                </td>
-                <td style={{ padding: "10px 0", color: "#64748b" }}>{a.source_type}</td>
-                <td style={{ padding: "10px 0" }}>
-                  <span style={{ color: sentimentColor[a.overall_sentiment], fontWeight: 600, textTransform: "capitalize" }}>
-                    {a.overall_sentiment}
-                  </span>
-                </td>
-                <td style={{ padding: "10px 0", fontWeight: 600, color: "#334155" }}>{a.sentiment_score}/10</td>
-                <td style={{ padding: "10px 0", color: "#94a3b8" }}>
-                  {new Date(a.created_at).toLocaleDateString()}
-                </td>
+        {/* Charts Row */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+          <div style={{ padding: 24, background: C.bgCard, borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontWeight: 600, marginBottom: 16, fontSize: 14, color: C.textPrimary }}>Sentiment Breakdown</div>
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie data={sentimentPieData} cx="50%" cy="50%" outerRadius={75} dataKey="value"
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  labelLine={false}>
+                  {sentimentPieData.map((entry) => (
+                    <Cell key={entry.name} fill={sentimentColor[entry.name] || C.textDim} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ fontFamily: "'Geist', sans-serif", fontSize: 12, border: `1px solid ${C.border}`, borderRadius: 8 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div style={{ padding: 24, background: C.bgCard, borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontWeight: 600, marginBottom: 16, fontSize: 14, color: C.textPrimary }}>Top Themes</div>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={topThemes} layout="vertical">
+                <XAxis type="number" hide />
+                <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11, fill: C.textSecondary, fontFamily: "'Geist', sans-serif" }} />
+                <Tooltip contentStyle={{ fontFamily: "'Geist', sans-serif", fontSize: 12, border: `1px solid ${C.border}`, borderRadius: 8 }} />
+                <Bar dataKey="count" fill={C.blue} radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Competitors + Sources */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+          {topCompetitors.length > 0 && (
+            <div style={{ padding: 24, background: C.bgCard, borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+              <div style={{ fontWeight: 600, marginBottom: 16, fontSize: 14, color: C.textPrimary }}>Competitors Mentioned</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {topCompetitors.map(([name, count]) => (
+                  <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 13, color: C.textSecondary }}>{name}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: C.blue, background: "#eff6ff", padding: "2px 10px", borderRadius: 20, border: "1px solid #bfdbfe" }}>{count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ padding: 24, background: C.bgCard, borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontWeight: 600, marginBottom: 16, fontSize: 14, color: C.textPrimary }}>Sources Analyzed</div>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={sourceBarData}>
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: C.textSecondary, fontFamily: "'Geist', sans-serif" }} />
+                <YAxis tick={{ fontSize: 11, fill: C.textSecondary }} />
+                <Tooltip contentStyle={{ fontFamily: "'Geist', sans-serif", fontSize: 12, border: `1px solid ${C.border}`, borderRadius: 8 }} />
+                <Bar dataKey="count" fill={C.blue} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Pain Points + Praise */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+          <div style={{ padding: 24, background: "#fef2f2", borderRadius: 12, border: "1px solid #fecaca" }}>
+            <div style={{ fontWeight: 600, marginBottom: 12, fontSize: 14, color: "#b91c1c" }}>Top Pain Points</div>
+            <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 6 }}>
+              {allPainPoints.slice(0, 8).map((p, i) => (
+                <li key={i} style={{ color: "#991b1b", fontSize: 13, lineHeight: 1.6 }}>{p}</li>
+              ))}
+            </ul>
+          </div>
+          <div style={{ padding: 24, background: "#f0fdf4", borderRadius: 12, border: "1px solid #bbf7d0" }}>
+            <div style={{ fontWeight: 600, marginBottom: 12, fontSize: 14, color: "#15803d" }}>Top Praise Points</div>
+            <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 6 }}>
+              {allPraisePoints.slice(0, 8).map((p, i) => (
+                <li key={i} style={{ color: "#166534", fontSize: 13, lineHeight: 1.6 }}>{p}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        {/* Recent Analyses Table */}
+        <div style={{ background: C.bgCard, borderRadius: 12, border: `1px solid ${C.border}`, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+          <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.border}`, background: C.bgMuted }}>
+            <div style={{ fontWeight: 600, fontSize: 14, color: C.textPrimary }}>Recent Analyses</div>
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                {["URL", "Source", "Sentiment", "Score", "Date"].map((h) => (
+                  <th key={h} style={{ textAlign: "left", padding: "10px 16px", color: C.textDim, fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "'Geist Mono', monospace" }}>{h}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {analyses.slice(0, 15).map((a) => (
+                <tr key={a.id} className="row-hover" style={{ borderBottom: `1px solid ${C.border}`, transition: "background 0.1s" }}>
+                  <td style={{ padding: "12px 16px", maxWidth: 280 }}>
+                    <a href={a.url} target="_blank" rel="noreferrer" style={{ color: C.blue, textDecoration: "none", fontSize: 12, fontFamily: "'Geist Mono', monospace" }}>
+                      {a.url.replace("https://", "").slice(0, 45)}{a.url.length > 53 ? "..." : ""}
+                    </a>
+                  </td>
+                  <td style={{ padding: "12px 16px", color: C.textDim, fontSize: 12, fontFamily: "'Geist Mono', monospace" }}>{a.source_type}</td>
+                  <td style={{ padding: "12px 16px" }}>
+                    <span style={{ color: sentimentColor[a.overall_sentiment], fontWeight: 600, textTransform: "capitalize", fontSize: 13 }}>
+                      {a.overall_sentiment}
+                    </span>
+                  </td>
+                  <td style={{ padding: "12px 16px", fontWeight: 600, color: C.textPrimary, fontFamily: "'Libre Baskerville', serif" }}>{a.sentiment_score}/10</td>
+                  <td style={{ padding: "12px 16px", color: C.textDim, fontSize: 12, fontFamily: "'Geist Mono', monospace" }}>
+                    {new Date(a.created_at).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-    </main>
+      </main>
+    </>
+  );
+}
+
+function Nav() {
+  return (
+    <nav style={{
+      display: "flex", justifyContent: "space-between", alignItems: "center",
+      padding: "16px 48px", borderBottom: "1px solid #e8e8e5",
+      background: "rgba(250,250,249,0.95)", position: "sticky", top: 0, zIndex: 100,
+      backdropFilter: "blur(8px)", fontFamily: "'Geist', sans-serif",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{
+          width: 28, height: 28, background: "#1a1a1a", borderRadius: 7,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          color: "white", fontSize: 13, fontWeight: 700,
+          fontFamily: "'Libre Baskerville', serif",
+        }}>P</div>
+        <span style={{ fontFamily: "'Libre Baskerville', serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.01em", color: "#111110" }}>Pulse</span>
+      </div>
+      <a href="/" className="nav-link" style={{
+        padding: "7px 16px", border: "1px solid #e8e8e5", borderRadius: 8,
+        color: "#6b6b63", fontSize: 13, fontWeight: 500, textDecoration: "none",
+        transition: "all 0.15s",
+      }}>← Analyzer</a>
+    </nav>
   );
 }
