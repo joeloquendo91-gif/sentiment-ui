@@ -1,3 +1,4 @@
+//v2
 export const maxDuration = 60;
 
 import Anthropic from "@anthropic-ai/sdk";
