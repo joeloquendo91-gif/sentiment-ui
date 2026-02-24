@@ -1,5 +1,4 @@
-export const maxDuration = 60;
-
+//v2
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 
@@ -20,18 +19,12 @@ function detectSource(url) {
 }
 
 async function scrapeUrl(url) {
-  // Reddit has a free JSON API that works if we use a browser user agent
   if (url.includes("reddit.com")) {
     const jsonUrl = url.replace(/\/?$/, ".json") + "?limit=100";
     const res = await fetch(jsonUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-      },
+      headers: { "User-Agent": "sentiment-poc/0.1" },
     });
-    const text = await res.text();
-    if (text.startsWith("<")) throw new Error("Reddit blocked the request");
-    const data = JSON.parse(text);
+    const data = await res.json();
     const post = data[0]?.data?.children[0]?.data;
     const comments = data[1]?.data?.children || [];
     const commentText = comments
@@ -41,7 +34,6 @@ async function scrapeUrl(url) {
     return `POST: ${post?.title}\n\n${post?.selftext}\n\nCOMMENTS:\n${commentText}`;
   }
 
-  // Firecrawl for G2, Capterra, etc.
   const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
     method: "POST",
     headers: {
@@ -51,7 +43,7 @@ async function scrapeUrl(url) {
     body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
   });
   const data = await res.json();
-  if (!data.success) throw new Error(`Scraping failed: ${data.error}`);
+  if (!data.success) throw new Error(`Firecrawl error: ${JSON.stringify(data)}`);
   return data.data?.markdown || "";
 }
 
@@ -97,7 +89,7 @@ ${truncatedText}
 
 export async function POST(request) {
   try {
-    const { url } = await request.json();
+    const { url, project_name } = await request.json();
     if (!url) return Response.json({ error: "URL is required" }, { status: 400 });
 
     const sourceType = detectSource(url);
@@ -112,39 +104,13 @@ export async function POST(request) {
     const { error } = await supabase.from("analyses").insert({
       url,
       source_type: sourceType,
+      project_name: project_name || "default",
       ...analysis,
     });
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
-    return Response.json({ success: true, url, source_type: sourceType, ...analysis });
-  } catch (err) {
-    return Response.json({ error: err.message }, { status: 500 });
-  }
-}
-export async function PUT(request) {
-  try {
-    const { urls } = await request.json();
-    if (!urls || !urls.length) return Response.json({ error: "URLs are required" }, { status: 400 });
-
-    const results = [];
-    for (const url of urls) {
-      try {
-        const sourceType = detectSource(url);
-        const rawText = await scrapeUrl(url);
-        if (!rawText || rawText.length < 100) {
-          results.push({ url, error: "Not enough content extracted" });
-          continue;
-        }
-        const analysis = await analyzeContent(rawText, sourceType);
-        await supabase.from("analyses").insert({ url, source_type: sourceType, ...analysis });
-        results.push({ url, source_type: sourceType, ...analysis });
-      } catch (err) {
-        results.push({ url, error: err.message });
-      }
-    }
-
-    return Response.json({ success: true, results });
+    return Response.json({ success: true, url, source_type: sourceType, project_name: project_name || "default", ...analysis });
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 });
   }
