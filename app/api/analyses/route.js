@@ -11,6 +11,9 @@ export async function GET() {
     .select("*")
     .order("created_at", { ascending: false });
 
+  console.log("data:", data);
+  console.log("error:", error);
+
   if (error) return Response.json({ error: error.message }, { status: 500 });
   return Response.json(data);
 }
