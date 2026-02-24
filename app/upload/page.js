@@ -1,3 +1,4 @@
+// v3
 "use client";
 import { useState, useRef } from "react";
 
@@ -27,12 +28,18 @@ const sentimentEmoji = {
   neutral: "⚪",
 };
 
-// Parse CSV text into array of objects
+const GROUP_OPTIONS = [
+  { value: "region", label: "Region", description: "Broadest view — best starting point" },
+  { value: "division", label: "Division", description: "Mid-level grouping" },
+  { value: "state", label: "State", description: "Group all locations per state" },
+  { value: "city", label: "City", description: "Group all locations per city" },
+  { value: "location", label: "Location", description: "Individual location — most granular" },
+];
+
 function parseCSV(text) {
   const lines = text.split("\n").filter((l) => l.trim());
   if (lines.length < 2) return [];
-  
-  // Handle quoted fields
+
   function parseLine(line) {
     const result = [];
     let current = "";
@@ -60,22 +67,41 @@ function parseCSV(text) {
   });
 }
 
-// Group rows by location key
-function groupByLocation(rows) {
+function groupRows(rows, groupBy) {
   const groups = {};
   rows.forEach((row) => {
+    let key = "";
     const business = row["Business Name"] || "";
-    const city = row["City"] || "";
-    const state = row["State"] || "";
-    const location = row["Location"] || "";
-    
-    // Build a location key - prefer Location field, fall back to Business+City+State
-    const key = location
-      ? `${business} — ${location}`
-      : city || state
-      ? `${business} — ${city}${state ? ", " + state : ""}`
-      : business || "Unknown Location";
-    
+
+    switch (groupBy) {
+      case "region":
+        key = row["Region"] || row["Division"] || business || "Unknown Region";
+        break;
+      case "division":
+        key = row["Division"] || row["Region"] || business || "Unknown Division";
+        break;
+      case "state":
+        key = row["State"] || "Unknown State";
+        break;
+      case "city":
+        key = row["City"]
+          ? `${row["City"]}${row["State"] ? ", " + row["State"] : ""}`
+          : "Unknown City";
+        break;
+      case "location":
+      default: {
+        const loc = row["Location"] || "";
+        const city = row["City"] || "";
+        const state = row["State"] || "";
+        key = loc
+          ? `${business} — ${loc}`
+          : city || state
+          ? `${business} — ${city}${state ? ", " + state : ""}`
+          : business || "Unknown Location";
+        break;
+      }
+    }
+
     if (!groups[key]) groups[key] = [];
     groups[key].push(row);
   });
@@ -85,12 +111,13 @@ function groupByLocation(rows) {
 export default function UploadPage() {
   const [file, setFile] = useState(null);
   const [rows, setRows] = useState([]);
+  const [groupBy, setGroupBy] = useState("region");
   const [locationGroups, setLocationGroups] = useState({});
   const [selectedLocations, setSelectedLocations] = useState([]);
   const [results, setResults] = useState([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, currentName: "" });
-  const [step, setStep] = useState("upload"); // upload | preview | results
+  const [step, setStep] = useState("upload");
   const fileRef = useRef();
 
   function handleFile(f) {
@@ -98,15 +125,23 @@ export default function UploadPage() {
     setFile(f);
     const reader = new FileReader();
     reader.onload = (e) => {
-      const text = e.target.result;
-      const parsed = parseCSV(text);
-      const groups = groupByLocation(parsed);
+      const parsed = parseCSV(e.target.result);
+      const groups = groupRows(parsed, groupBy);
       setRows(parsed);
       setLocationGroups(groups);
       setSelectedLocations(Object.keys(groups));
       setStep("preview");
     };
     reader.readAsText(f);
+  }
+
+  function handleGroupByChange(newGroupBy) {
+    setGroupBy(newGroupBy);
+    if (rows.length > 0) {
+      const groups = groupRows(rows, newGroupBy);
+      setLocationGroups(groups);
+      setSelectedLocations(Object.keys(groups));
+    }
   }
 
   function toggleLocation(loc) {
@@ -129,16 +164,16 @@ export default function UploadPage() {
       setProgress({ current: i + 1, total, currentName: locationName });
 
       const locationRows = locationGroups[locationName];
-      
-      // Build text from reviews
       const reviewText = locationRows
         .filter((r) => r["Review Comment"]?.trim())
         .map((r) => {
-          const rating = r["Review Rating"] ? `Rating: ${r["Review Rating"]}/5` : "";
-          const source = r["Review Source"] ? `Source: ${r["Review Source"]}` : "";
-          const date = r["Date Posted On"] ? `Date: ${r["Date Posted On"]}` : "";
-          const comment = r["Review Comment"] || "";
-          return [rating, source, date, comment].filter(Boolean).join(" | ");
+          const parts = [
+            r["Review Rating"] ? `Rating: ${r["Review Rating"]}/5` : "",
+            r["Review Source"] ? `Source: ${r["Review Source"]}` : "",
+            r["Date Posted On"] ? `Date: ${r["Date Posted On"]}` : "",
+            r["Review Comment"] || "",
+          ].filter(Boolean);
+          return parts.join(" | ");
         })
         .join("\n\n");
 
@@ -154,7 +189,7 @@ export default function UploadPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             text: reviewText,
-            source: "csv_upload",
+            source: `csv_${groupBy}`,
             label: locationName,
             reviewCount: locationRows.filter((r) => r["Review Comment"]?.trim()).length,
           }),
@@ -167,6 +202,11 @@ export default function UploadPage() {
       }
 
       setResults([...allResults]);
+
+      // Delay between calls to avoid overloading Claude API
+      if (i < selectedLocations.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
     }
 
     setAnalyzing(false);
@@ -186,16 +226,12 @@ export default function UploadPage() {
         .btn-primary { transition: all 0.15s; }
         .btn-primary:hover:not(:disabled) { background: #333 !important; transform: translateY(-1px); }
         .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-        .result-card { transition: all 0.2s; }
+        .group-option { transition: all 0.15s; cursor: pointer; }
+        .group-option:hover { border-color: #2563eb !important; }
       `}</style>
 
       {/* NAV */}
-      <nav style={{
-        display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "16px 48px", borderBottom: "1px solid #e8e8e5",
-        background: "rgba(250,250,249,0.95)", position: "sticky", top: 0, zIndex: 100,
-        backdropFilter: "blur(8px)", fontFamily: "'Geist', sans-serif",
-      }}>
+      <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 48px", borderBottom: "1px solid #e8e8e5", background: "rgba(250,250,249,0.95)", position: "sticky", top: 0, zIndex: 100, backdropFilter: "blur(8px)", fontFamily: "'Geist', sans-serif" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 28, height: 28, background: "#1a1a1a", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 13, fontWeight: 700, fontFamily: "'Libre Baskerville', serif" }}>P</div>
           <span style={{ fontFamily: "'Libre Baskerville', serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.01em", color: "#111110" }}>Pulse</span>
@@ -215,9 +251,41 @@ export default function UploadPage() {
             Analyze reviews by location
           </h1>
           <p style={{ fontSize: 15, color: C.textSecondary, lineHeight: 1.7 }}>
-            Upload your review spreadsheet. We'll group by location and run sentiment analysis on each one.
+            Upload your review spreadsheet. Choose how to group your data, then run sentiment analysis on each group.
           </p>
         </div>
+
+        {/* Group by selector — always visible once file loaded or on upload step */}
+        {(step === "upload" || step === "preview") && (
+          <div style={{ marginBottom: 32 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.textPrimary, marginBottom: 12 }}>
+              Group reviews by
+              <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 400, color: C.textDim }}>— start broad, drill down later</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+              {GROUP_OPTIONS.map((opt) => {
+                const active = groupBy === opt.value;
+                return (
+                  <div
+                    key={opt.value}
+                    className="group-option"
+                    onClick={() => handleGroupByChange(opt.value)}
+                    style={{
+                      padding: "12px 14px",
+                      border: `1.5px solid ${active ? C.blue : C.border}`,
+                      borderRadius: 10,
+                      background: active ? "#eff6ff" : C.bgCard,
+                      boxShadow: active ? "0 0 0 3px rgba(37,99,235,0.08)" : "0 1px 2px rgba(0,0,0,0.04)",
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, fontSize: 13, color: active ? C.blue : C.textPrimary, marginBottom: 4 }}>{opt.label}</div>
+                    <div style={{ fontSize: 11, color: C.textDim, lineHeight: 1.4 }}>{opt.description}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* STEP 1: Upload */}
         {step === "upload" && (
@@ -226,25 +294,14 @@ export default function UploadPage() {
             onClick={() => fileRef.current?.click()}
             onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("drag-over"); }}
             onDragLeave={(e) => e.currentTarget.classList.remove("drag-over")}
-            onDrop={(e) => {
-              e.preventDefault();
-              e.currentTarget.classList.remove("drag-over");
-              handleFile(e.dataTransfer.files[0]);
-            }}
-            style={{
-              border: "2px dashed #e8e8e5", borderRadius: 16, padding: "64px 40px",
-              textAlign: "center", cursor: "pointer", background: C.bgCard,
-            }}
+            onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove("drag-over"); handleFile(e.dataTransfer.files[0]); }}
+            style={{ border: "2px dashed #e8e8e5", borderRadius: 16, padding: "56px 40px", textAlign: "center", cursor: "pointer", background: C.bgCard }}
           >
             <div style={{ fontSize: 36, marginBottom: 16 }}>📄</div>
-            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, fontWeight: 700, color: C.textPrimary, marginBottom: 8 }}>
-              Drop your CSV here
-            </div>
-            <p style={{ color: C.textSecondary, fontSize: 14, marginBottom: 20 }}>
-              or click to browse. Accepts .csv files.
-            </p>
+            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, fontWeight: 700, color: C.textPrimary, marginBottom: 8 }}>Drop your CSV here</div>
+            <p style={{ color: C.textSecondary, fontSize: 14, marginBottom: 20 }}>or click to browse</p>
             <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
-              {["Business Name", "Location", "Review Comment", "Review Rating", "Review Source"].map((col) => (
+              {["Business Name", "Region", "Division", "Location", "City", "State", "Review Comment", "Review Rating"].map((col) => (
                 <span key={col} style={{ padding: "3px 10px", background: C.bgMuted, border: `1px solid ${C.border}`, borderRadius: 20, fontSize: 11, color: C.textDim, fontFamily: "'Geist Mono', monospace" }}>{col}</span>
               ))}
             </div>
@@ -252,7 +309,7 @@ export default function UploadPage() {
           </div>
         )}
 
-        {/* STEP 2: Preview & select locations */}
+        {/* STEP 2: Preview */}
         {step === "preview" && (
           <div>
             {/* File info */}
@@ -261,7 +318,7 @@ export default function UploadPage() {
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, color: C.textPrimary, fontSize: 14 }}>{file?.name}</div>
                 <div style={{ fontSize: 12, color: C.textDim, fontFamily: "'Geist Mono', monospace", marginTop: 2 }}>
-                  {rows.length} rows · {Object.keys(locationGroups).length} locations detected
+                  {rows.length} rows · {Object.keys(locationGroups).length} {groupBy} groups detected
                 </div>
               </div>
               <button onClick={() => { setStep("upload"); setFile(null); setRows([]); }} style={{ padding: "6px 12px", border: `1px solid ${C.border}`, borderRadius: 8, background: "transparent", color: C.textSecondary, fontSize: 12, cursor: "pointer" }}>
@@ -273,25 +330,24 @@ export default function UploadPage() {
             <div style={{ marginBottom: 24 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <div style={{ fontWeight: 600, fontSize: 14, color: C.textPrimary }}>
-                  Select locations to analyze
+                  Select groups to analyze
                   <span style={{ marginLeft: 8, fontFamily: "'Geist Mono', monospace", fontSize: 11, color: C.textDim, fontWeight: 400 }}>
                     {selectedLocations.length} of {Object.keys(locationGroups).length} selected
                   </span>
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setSelectedLocations(Object.keys(locationGroups))} style={{ fontSize: 12, color: C.blue, background: "none", border: "none", cursor: "pointer", fontFamily: "'Geist', sans-serif" }}>
-                    Select all
-                  </button>
-                  <button onClick={() => setSelectedLocations([])} style={{ fontSize: 12, color: C.textDim, background: "none", border: "none", cursor: "pointer", fontFamily: "'Geist', sans-serif" }}>
-                    Clear
-                  </button>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <button onClick={() => setSelectedLocations(Object.keys(locationGroups))} style={{ fontSize: 12, color: C.blue, background: "none", border: "none", cursor: "pointer", fontFamily: "'Geist', sans-serif" }}>Select all</button>
+                  <button onClick={() => setSelectedLocations([])} style={{ fontSize: 12, color: C.textDim, background: "none", border: "none", cursor: "pointer", fontFamily: "'Geist', sans-serif" }}>Clear</button>
                 </div>
               </div>
 
-              <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-                {Object.entries(locationGroups).map(([loc, locRows], i) => {
+              <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", maxHeight: 400, overflowY: "auto", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                {Object.entries(locationGroups).map(([loc, locRows], i, arr) => {
                   const selected = selectedLocations.includes(loc);
                   const reviewCount = locRows.filter((r) => r["Review Comment"]?.trim()).length;
+                  const avgRating = locRows.filter((r) => r["Review Rating"]).length
+                    ? (locRows.reduce((sum, r) => sum + (parseFloat(r["Review Rating"]) || 0), 0) / locRows.filter((r) => r["Review Rating"]).length).toFixed(1)
+                    : null;
                   return (
                     <div
                       key={loc}
@@ -299,9 +355,8 @@ export default function UploadPage() {
                       onClick={() => toggleLocation(loc)}
                       style={{
                         display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
-                        borderBottom: i < Object.keys(locationGroups).length - 1 ? `1px solid ${C.border}` : "none",
+                        borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none",
                         cursor: "pointer", background: selected ? "#f0f7ff" : "white",
-                        transition: "background 0.1s",
                       }}
                     >
                       <div style={{
@@ -316,7 +371,8 @@ export default function UploadPage() {
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 14, fontWeight: 500, color: C.textPrimary }}>{loc}</div>
                         <div style={{ fontSize: 11, color: C.textDim, fontFamily: "'Geist Mono', monospace", marginTop: 2 }}>
-                          {locRows.length} rows · {reviewCount} with review text
+                          {locRows.length} rows · {reviewCount} reviews
+                          {avgRating && ` · avg ${avgRating}★`}
                         </div>
                       </div>
                     </div>
@@ -329,13 +385,9 @@ export default function UploadPage() {
               className="btn-primary"
               onClick={runAnalysis}
               disabled={selectedLocations.length === 0}
-              style={{
-                width: "100%", padding: "13px", background: "#1a1a1a", color: "white",
-                border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600,
-                cursor: "pointer", fontFamily: "'Geist', sans-serif",
-              }}
+              style={{ width: "100%", padding: "13px", background: "#1a1a1a", color: "white", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'Geist', sans-serif" }}
             >
-              Analyze {selectedLocations.length} location{selectedLocations.length !== 1 ? "s" : ""} →
+              Analyze {selectedLocations.length} {groupBy} group{selectedLocations.length !== 1 ? "s" : ""} →
             </button>
           </div>
         )}
@@ -343,58 +395,39 @@ export default function UploadPage() {
         {/* STEP 3: Results */}
         {step === "results" && (
           <div>
-            {/* Progress */}
             {analyzing && (
               <div style={{ padding: 20, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, marginBottom: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 12, color: C.blue }}>
-                    analyzing {progress.current} / {progress.total}
-                  </div>
+                  <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 12, color: C.blue }}>analyzing {progress.current} / {progress.total}</div>
                   <div style={{ fontSize: 12, color: C.textDim }}>{Math.round((progress.current / progress.total) * 100)}%</div>
                 </div>
                 <div style={{ height: 4, background: C.bgMuted, borderRadius: 2, overflow: "hidden" }}>
                   <div style={{ height: "100%", background: C.blue, borderRadius: 2, width: `${(progress.current / progress.total) * 100}%`, transition: "width 0.3s ease" }} />
                 </div>
-                <div style={{ fontSize: 12, color: C.textSecondary, marginTop: 8 }}>
-                  Currently: {progress.currentName}
-                </div>
+                <div style={{ fontSize: 12, color: C.textSecondary, marginTop: 8 }}>Currently: {progress.currentName}</div>
               </div>
             )}
 
-            {/* Results summary */}
             {results.length > 0 && !analyzing && (
-              <div style={{ padding: 20, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, marginBottom: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 15, color: C.textPrimary, marginBottom: 4 }}>
-                      Analysis complete
-                    </div>
-                    <div style={{ fontSize: 12, color: C.textDim, fontFamily: "'Geist Mono', monospace" }}>
-                      {results.filter((r) => !r.error).length} successful · {results.filter((r) => r.error).length} failed
-                    </div>
+              <div style={{ padding: 20, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: C.textPrimary, marginBottom: 4 }}>Analysis complete</div>
+                  <div style={{ fontSize: 12, color: C.textDim, fontFamily: "'Geist Mono', monospace" }}>
+                    {results.filter((r) => !r.error).length} successful · {results.filter((r) => r.error).length} failed
                   </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <a href="/dashboard" style={{ padding: "8px 16px", background: C.blue, color: "white", borderRadius: 8, textDecoration: "none", fontSize: 13, fontWeight: 600, fontFamily: "'Geist', sans-serif" }}>
-                      View Dashboard →
-                    </a>
-                    <button onClick={() => setStep("preview")} style={{ padding: "8px 16px", border: `1px solid ${C.border}`, background: "white", color: C.textSecondary, borderRadius: 8, fontSize: 13, cursor: "pointer", fontFamily: "'Geist', sans-serif" }}>
-                      Back
-                    </button>
-                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <a href="/dashboard" style={{ padding: "8px 16px", background: C.blue, color: "white", borderRadius: 8, textDecoration: "none", fontSize: 13, fontWeight: 600, fontFamily: "'Geist', sans-serif" }}>View Dashboard →</a>
+                  <button onClick={() => setStep("preview")} style={{ padding: "8px 16px", border: `1px solid ${C.border}`, background: "white", color: C.textSecondary, borderRadius: 8, fontSize: 13, cursor: "pointer", fontFamily: "'Geist', sans-serif" }}>Back</button>
                 </div>
               </div>
             )}
 
-            {/* Result cards */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {results.map((r, i) => (
-                <ResultCard key={i} result={r} />
-              ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {results.map((r, i) => <ResultCard key={i} result={r} />)}
               {analyzing && (
                 <div style={{ padding: 24, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, textAlign: "center" }}>
-                  <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 12, color: C.textDim }}>
-                    analyzing {progress.currentName}...
-                  </div>
+                  <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 12, color: C.textDim }}>analyzing {progress.currentName}...</div>
                 </div>
               )}
             </div>
@@ -419,10 +452,7 @@ function ResultCard({ result }) {
 
   return (
     <div style={{ background: "#ffffff", border: "1px solid #e8e8e5", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-      <div
-        onClick={() => setExpanded(!expanded)}
-        style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}
-      >
+      <div onClick={() => setExpanded(!expanded)} style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
         <span style={{ fontSize: 20 }}>{sentimentEmoji[result.overall_sentiment]}</span>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, color: "#111110", fontSize: 14 }}>{result.location}</div>
@@ -430,10 +460,8 @@ function ResultCard({ result }) {
             {result.count} reviews · {result.overall_sentiment} · {result.sentiment_score}/10
           </div>
         </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: sentimentColor[result.overall_sentiment] }}>
-            {result.sentiment_score}/10
-          </div>
+        <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: sentimentColor[result.overall_sentiment] }}>
+          {result.sentiment_score}/10
         </div>
         <span style={{ color: "#a8a89e", fontSize: 11, marginLeft: 8 }}>{expanded ? "▲" : "▼"}</span>
       </div>
