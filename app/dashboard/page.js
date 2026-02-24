@@ -1,3 +1,4 @@
+//v2
 "use client";
 import { useState, useEffect } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
@@ -30,6 +31,7 @@ async function fetchAnalyses() {
 
 export default function Dashboard() {
   const [analyses, setAnalyses] = useState([]);
+  const [projectFilter, setProjectFilter] = useState("all");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -47,6 +49,9 @@ export default function Dashboard() {
     .analyze-btn:hover { background: #333 !important; }
     .row-hover:hover { background: #f8f8f6 !important; }
   `;
+
+  const projects = ["all", ...new Set(analyses.map((a) => a.project_name || "default").filter(Boolean))];
+  const filtered = projectFilter === "all" ? analyses : analyses.filter((a) => (a.project_name || "default") === projectFilter);
 
   if (loading) {
     return (
@@ -81,16 +86,16 @@ export default function Dashboard() {
   }
 
   // Compute stats
-  const avgScore = (analyses.reduce((sum, a) => sum + (a.sentiment_score || 0), 0) / analyses.length).toFixed(1);
+  const avgScore = (filtered.reduce((sum, a) => sum + (a.sentiment_score || 0), 0) / analyses.length).toFixed(1);
 
-  const sentimentCounts = analyses.reduce((acc, a) => {
+  const sentimentCounts = filtered.reduce((acc, a) => {
     acc[a.overall_sentiment] = (acc[a.overall_sentiment] || 0) + 1;
     return acc;
   }, {});
 
   const sentimentPieData = Object.entries(sentimentCounts).map(([name, value]) => ({ name, value }));
 
-  const sourceCounts = analyses.reduce((acc, a) => {
+  const sourceCounts = filtered.reduce((acc, a) => {
     const s = a.source_type || "other";
     acc[s] = (acc[s] || 0) + 1;
     return acc;
@@ -98,7 +103,7 @@ export default function Dashboard() {
 
   const sourceBarData = Object.entries(sourceCounts).map(([name, count]) => ({ name, count }));
 
-  const allCompetitors = analyses
+  const allCompetitors = filtered
     .flatMap((a) => a.competitor_mentions || [])
     .reduce((acc, c) => { acc[c] = (acc[c] || 0) + 1; return acc; }, {});
 
@@ -106,10 +111,10 @@ export default function Dashboard() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
 
-  const allPainPoints = analyses.flatMap((a) => a.pain_points || []);
-  const allPraisePoints = analyses.flatMap((a) => a.praise_points || []);
+  const allPainPoints = filtered.flatMap((a) => a.pain_points || []);
+  const allPraisePoints = filtered.flatMap((a) => a.praise_points || []);
 
-  const allThemes = analyses
+  const allThemes = filtered
     .flatMap((a) => a.themes || [])
     .reduce((acc, t) => { acc[t] = (acc[t] || 0) + 1; return acc; }, {});
 
@@ -126,23 +131,48 @@ export default function Dashboard() {
       <main style={{ maxWidth: 960, margin: "0 auto", padding: "48px 24px 80px", fontFamily: "'Geist', sans-serif" }}>
 
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 40 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
           <div>
             <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 30, fontWeight: 700, color: C.textPrimary, letterSpacing: "-0.02em", margin: 0 }}>
               Intelligence Dashboard
             </h1>
             <p style={{ color: C.textDim, margin: "6px 0 0", fontSize: 14, fontFamily: "'Geist Mono', monospace" }}>
-              {analyses.length} analyses · {Object.keys(sourceCounts).length} sources
+              {filtered.length} analyses · {Object.keys(sourceCounts).length} sources
             </p>
           </div>
-          <a href="/" className="analyze-btn" style={{
-            padding: "9px 18px", background: C.textPrimary, color: "white",
-            borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 13,
-            transition: "all 0.15s",
-          }}>
-            + Analyze More
-          </a>
+          <div style={{ display: "flex", gap: 8 }}>
+            <a href="/upload" style={{ padding: "9px 18px", background: "white", color: C.textPrimary, border: "1px solid #e8e8e5", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 13, fontFamily: "'Geist', sans-serif" }}>
+              CSV Upload
+            </a>
+            <a href="/" className="analyze-btn" style={{ padding: "9px 18px", background: C.textPrimary, color: "white", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 13 }}>
+              + Analyze More
+            </a>
+          </div>
         </div>
+
+        {/* Project filter */}
+        {projects.length > 2 && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 32, flexWrap: "wrap" }}>
+            {projects.map((p) => (
+              <button key={p} onClick={() => setProjectFilter(p)} style={{
+                padding: "6px 14px", borderRadius: 20,
+                border: "1px solid " + (projectFilter === p ? C.blue : C.border),
+                background: projectFilter === p ? "#eff6ff" : "white",
+                color: projectFilter === p ? C.blue : C.textSecondary,
+                fontSize: 12, fontWeight: 500, cursor: "pointer",
+                fontFamily: "'Geist', sans-serif", transition: "all 0.15s",
+              }}>
+                {p === "all" ? "All projects" : p}
+                {p !== "all" && (
+                  <span style={{ marginLeft: 6, color: C.textDim, fontSize: 11 }}>
+                    ({analyses.filter((a) => (a.project_name || "default") === p).length})
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+        {projects.length <= 2 && <div style={{ marginBottom: 32 }} />}
 
         {/* KPI Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
@@ -253,7 +283,7 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {analyses.slice(0, 15).map((a) => (
+              {filtered.slice(0, 15).map((a) => (
                 <tr key={a.id} className="row-hover" style={{ borderBottom: `1px solid ${C.border}`, transition: "background 0.1s" }}>
                   <td style={{ padding: "12px 16px", maxWidth: 280 }}>
                     <a href={a.url} target="_blank" rel="noreferrer" style={{ color: C.blue, textDecoration: "none", fontSize: 12, fontFamily: "'Geist Mono', monospace" }}>
