@@ -15,7 +15,10 @@ const sentimentColor = {
 
 async function fetchAnalyses() {
   const res = await fetch("/api/analyses");
-  return res.json();
+  if (!res.ok) throw new Error("Failed to fetch");
+  const text = await res.text();
+  if (!text) return [];
+  return JSON.parse(text);
 }
 
 export default function Dashboard() {
