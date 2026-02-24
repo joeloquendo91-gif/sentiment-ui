@@ -1,4 +1,496 @@
 "use client";
+import { useState, useRef } from "react";
+
+const C = {
+  bg: "#fafaf9",
+  bgCard: "#ffffff",
+  bgMuted: "#f4f4f2",
+  border: "#e8e8e5",
+  borderStrong: "#d0d0cb",
+  blue: "#2563eb",
+  textPrimary: "#111110",
+  textSecondary: "#6b6b63",
+  textDim: "#a8a89e",
+};
+
+const sentimentColor = {
+  positive: "#16a34a",
+  negative: "#dc2626",
+  mixed: "#d97706",
+  neutral: "#6b7280",
+};
+
+const sentimentEmoji = {
+  positive: "🟢",
+  negative: "🔴",
+  mixed: "🟡",
+  neutral: "⚪",
+};
+
+// Parse CSV text into array of objects
+function parseCSV(text) {
+  const lines = text.split("\n").filter((l) => l.trim());
+  if (lines.length < 2) return [];
+  
+  // Handle quoted fields
+  function parseLine(line) {
+    const result = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === '"') {
+        inQuotes = !inQuotes;
+      } else if (line[i] === "," && !inQuotes) {
+        result.push(current.trim());
+        current = "";
+      } else {
+        current += line[i];
+      }
+    }
+    result.push(current.trim());
+    return result;
+  }
+
+  const headers = parseLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = parseLine(line);
+    const obj = {};
+    headers.forEach((h, i) => { obj[h.trim()] = values[i] || ""; });
+    return obj;
+  });
+}
+
+// Group rows by location key
+function groupByLocation(rows) {
+  const groups = {};
+  rows.forEach((row) => {
+    const business = row["Business Name"] || "";
+    const city = row["City"] || "";
+    const state = row["State"] || "";
+    const location = row["Location"] || "";
+    
+    // Build a location key - prefer Location field, fall back to Business+City+State
+    const key = location
+      ? `${business} — ${location}`
+      : city || state
+      ? `${business} — ${city}${state ? ", " + state : ""}`
+      : business || "Unknown Location";
+    
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(row);
+  });
+  return groups;
+}
+
 export default function UploadPage() {
-  return <div>Upload page</div>;
+  const [file, setFile] = useState(null);
+  const [rows, setRows] = useState([]);
+  const [locationGroups, setLocationGroups] = useState({});
+  const [selectedLocations, setSelectedLocations] = useState([]);
+  const [results, setResults] = useState([]);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0, currentName: "" });
+  const [step, setStep] = useState("upload"); // upload | preview | results
+  const fileRef = useRef();
+
+  function handleFile(f) {
+    if (!f) return;
+    setFile(f);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      const parsed = parseCSV(text);
+      const groups = groupByLocation(parsed);
+      setRows(parsed);
+      setLocationGroups(groups);
+      setSelectedLocations(Object.keys(groups));
+      setStep("preview");
+    };
+    reader.readAsText(f);
+  }
+
+  function toggleLocation(loc) {
+    setSelectedLocations((prev) =>
+      prev.includes(loc) ? prev.filter((l) => l !== loc) : [...prev, loc]
+    );
+  }
+
+  async function runAnalysis() {
+    if (!selectedLocations.length) return;
+    setAnalyzing(true);
+    setResults([]);
+    setStep("results");
+
+    const total = selectedLocations.length;
+    const allResults = [];
+
+    for (let i = 0; i < selectedLocations.length; i++) {
+      const locationName = selectedLocations[i];
+      setProgress({ current: i + 1, total, currentName: locationName });
+
+      const locationRows = locationGroups[locationName];
+      
+      // Build text from reviews
+      const reviewText = locationRows
+        .filter((r) => r["Review Comment"]?.trim())
+        .map((r) => {
+          const rating = r["Review Rating"] ? `Rating: ${r["Review Rating"]}/5` : "";
+          const source = r["Review Source"] ? `Source: ${r["Review Source"]}` : "";
+          const date = r["Date Posted On"] ? `Date: ${r["Date Posted On"]}` : "";
+          const comment = r["Review Comment"] || "";
+          return [rating, source, date, comment].filter(Boolean).join(" | ");
+        })
+        .join("\n\n");
+
+      if (!reviewText.trim()) {
+        allResults.push({ location: locationName, error: "No review text found", count: locationRows.length });
+        setResults([...allResults]);
+        continue;
+      }
+
+      try {
+        const res = await fetch("/api/analyze-text", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: reviewText,
+            source: "csv_upload",
+            label: locationName,
+            reviewCount: locationRows.filter((r) => r["Review Comment"]?.trim()).length,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        allResults.push({ location: locationName, count: locationRows.length, ...data });
+      } catch (err) {
+        allResults.push({ location: locationName, error: err.message, count: locationRows.length });
+      }
+
+      setResults([...allResults]);
+    }
+
+    setAnalyzing(false);
+    setProgress({ current: 0, total: 0, currentName: "" });
+  }
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #fafaf9; }
+        .nav-link:hover { border-color: #d0d0cb !important; color: #111110 !important; }
+        .drop-zone { transition: all 0.2s; }
+        .drop-zone:hover, .drop-zone.drag-over { border-color: #2563eb !important; background: #eff6ff !important; }
+        .loc-row:hover { background: #f8f8f6 !important; }
+        .btn-primary { transition: all 0.15s; }
+        .btn-primary:hover:not(:disabled) { background: #333 !important; transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+        .result-card { transition: all 0.2s; }
+      `}</style>
+
+      {/* NAV */}
+      <nav style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        padding: "16px 48px", borderBottom: "1px solid #e8e8e5",
+        background: "rgba(250,250,249,0.95)", position: "sticky", top: 0, zIndex: 100,
+        backdropFilter: "blur(8px)", fontFamily: "'Geist', sans-serif",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 28, height: 28, background: "#1a1a1a", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 13, fontWeight: 700, fontFamily: "'Libre Baskerville', serif" }}>P</div>
+          <span style={{ fontFamily: "'Libre Baskerville', serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.01em", color: "#111110" }}>Pulse</span>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <a href="/" className="nav-link" style={{ padding: "7px 16px", border: "1px solid #e8e8e5", borderRadius: 8, color: "#6b6b63", fontSize: 13, fontWeight: 500, textDecoration: "none" }}>Analyzer</a>
+          <a href="/dashboard" className="nav-link" style={{ padding: "7px 16px", border: "1px solid #e8e8e5", borderRadius: 8, color: "#6b6b63", fontSize: 13, fontWeight: 500, textDecoration: "none" }}>Dashboard</a>
+        </div>
+      </nav>
+
+      <main style={{ maxWidth: 860, margin: "0 auto", padding: "48px 24px 80px", fontFamily: "'Geist', sans-serif" }}>
+
+        {/* Page header */}
+        <div style={{ marginBottom: 40 }}>
+          <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11, color: C.blue, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>CSV Upload</div>
+          <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 30, fontWeight: 700, color: C.textPrimary, letterSpacing: "-0.02em", marginBottom: 8 }}>
+            Analyze reviews by location
+          </h1>
+          <p style={{ fontSize: 15, color: C.textSecondary, lineHeight: 1.7 }}>
+            Upload your review spreadsheet. We'll group by location and run sentiment analysis on each one.
+          </p>
+        </div>
+
+        {/* STEP 1: Upload */}
+        {step === "upload" && (
+          <div
+            className="drop-zone"
+            onClick={() => fileRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("drag-over"); }}
+            onDragLeave={(e) => e.currentTarget.classList.remove("drag-over")}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.currentTarget.classList.remove("drag-over");
+              handleFile(e.dataTransfer.files[0]);
+            }}
+            style={{
+              border: "2px dashed #e8e8e5", borderRadius: 16, padding: "64px 40px",
+              textAlign: "center", cursor: "pointer", background: C.bgCard,
+            }}
+          >
+            <div style={{ fontSize: 36, marginBottom: 16 }}>📄</div>
+            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, fontWeight: 700, color: C.textPrimary, marginBottom: 8 }}>
+              Drop your CSV here
+            </div>
+            <p style={{ color: C.textSecondary, fontSize: 14, marginBottom: 20 }}>
+              or click to browse. Accepts .csv files.
+            </p>
+            <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+              {["Business Name", "Location", "Review Comment", "Review Rating", "Review Source"].map((col) => (
+                <span key={col} style={{ padding: "3px 10px", background: C.bgMuted, border: `1px solid ${C.border}`, borderRadius: 20, fontSize: 11, color: C.textDim, fontFamily: "'Geist Mono', monospace" }}>{col}</span>
+              ))}
+            </div>
+            <input ref={fileRef} type="file" accept=".csv" style={{ display: "none" }} onChange={(e) => handleFile(e.target.files[0])} />
+          </div>
+        )}
+
+        {/* STEP 2: Preview & select locations */}
+        {step === "preview" && (
+          <div>
+            {/* File info */}
+            <div style={{ padding: 16, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, marginBottom: 24, display: "flex", alignItems: "center", gap: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+              <div style={{ fontSize: 24 }}>📄</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, color: C.textPrimary, fontSize: 14 }}>{file?.name}</div>
+                <div style={{ fontSize: 12, color: C.textDim, fontFamily: "'Geist Mono', monospace", marginTop: 2 }}>
+                  {rows.length} rows · {Object.keys(locationGroups).length} locations detected
+                </div>
+              </div>
+              <button onClick={() => { setStep("upload"); setFile(null); setRows([]); }} style={{ padding: "6px 12px", border: `1px solid ${C.border}`, borderRadius: 8, background: "transparent", color: C.textSecondary, fontSize: 12, cursor: "pointer" }}>
+                Change file
+              </button>
+            </div>
+
+            {/* Location selector */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, color: C.textPrimary }}>
+                  Select locations to analyze
+                  <span style={{ marginLeft: 8, fontFamily: "'Geist Mono', monospace", fontSize: 11, color: C.textDim, fontWeight: 400 }}>
+                    {selectedLocations.length} of {Object.keys(locationGroups).length} selected
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setSelectedLocations(Object.keys(locationGroups))} style={{ fontSize: 12, color: C.blue, background: "none", border: "none", cursor: "pointer", fontFamily: "'Geist', sans-serif" }}>
+                    Select all
+                  </button>
+                  <button onClick={() => setSelectedLocations([])} style={{ fontSize: 12, color: C.textDim, background: "none", border: "none", cursor: "pointer", fontFamily: "'Geist', sans-serif" }}>
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                {Object.entries(locationGroups).map(([loc, locRows], i) => {
+                  const selected = selectedLocations.includes(loc);
+                  const reviewCount = locRows.filter((r) => r["Review Comment"]?.trim()).length;
+                  return (
+                    <div
+                      key={loc}
+                      className="loc-row"
+                      onClick={() => toggleLocation(loc)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
+                        borderBottom: i < Object.keys(locationGroups).length - 1 ? `1px solid ${C.border}` : "none",
+                        cursor: "pointer", background: selected ? "#f0f7ff" : "white",
+                        transition: "background 0.1s",
+                      }}
+                    >
+                      <div style={{
+                        width: 18, height: 18, borderRadius: 4,
+                        border: `1.5px solid ${selected ? C.blue : C.borderStrong}`,
+                        background: selected ? C.blue : "white",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        flexShrink: 0, transition: "all 0.1s",
+                      }}>
+                        {selected && <span style={{ color: "white", fontSize: 11, fontWeight: 700 }}>✓</span>}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 500, color: C.textPrimary }}>{loc}</div>
+                        <div style={{ fontSize: 11, color: C.textDim, fontFamily: "'Geist Mono', monospace", marginTop: 2 }}>
+                          {locRows.length} rows · {reviewCount} with review text
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button
+              className="btn-primary"
+              onClick={runAnalysis}
+              disabled={selectedLocations.length === 0}
+              style={{
+                width: "100%", padding: "13px", background: "#1a1a1a", color: "white",
+                border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600,
+                cursor: "pointer", fontFamily: "'Geist', sans-serif",
+              }}
+            >
+              Analyze {selectedLocations.length} location{selectedLocations.length !== 1 ? "s" : ""} →
+            </button>
+          </div>
+        )}
+
+        {/* STEP 3: Results */}
+        {step === "results" && (
+          <div>
+            {/* Progress */}
+            {analyzing && (
+              <div style={{ padding: 20, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, marginBottom: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 12, color: C.blue }}>
+                    analyzing {progress.current} / {progress.total}
+                  </div>
+                  <div style={{ fontSize: 12, color: C.textDim }}>{Math.round((progress.current / progress.total) * 100)}%</div>
+                </div>
+                <div style={{ height: 4, background: C.bgMuted, borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", background: C.blue, borderRadius: 2, width: `${(progress.current / progress.total) * 100}%`, transition: "width 0.3s ease" }} />
+                </div>
+                <div style={{ fontSize: 12, color: C.textSecondary, marginTop: 8 }}>
+                  Currently: {progress.currentName}
+                </div>
+              </div>
+            )}
+
+            {/* Results summary */}
+            {results.length > 0 && !analyzing && (
+              <div style={{ padding: 20, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, marginBottom: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: C.textPrimary, marginBottom: 4 }}>
+                      Analysis complete
+                    </div>
+                    <div style={{ fontSize: 12, color: C.textDim, fontFamily: "'Geist Mono', monospace" }}>
+                      {results.filter((r) => !r.error).length} successful · {results.filter((r) => r.error).length} failed
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <a href="/dashboard" style={{ padding: "8px 16px", background: C.blue, color: "white", borderRadius: 8, textDecoration: "none", fontSize: 13, fontWeight: 600, fontFamily: "'Geist', sans-serif" }}>
+                      View Dashboard →
+                    </a>
+                    <button onClick={() => setStep("preview")} style={{ padding: "8px 16px", border: `1px solid ${C.border}`, background: "white", color: C.textSecondary, borderRadius: 8, fontSize: 13, cursor: "pointer", fontFamily: "'Geist', sans-serif" }}>
+                      Back
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Result cards */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {results.map((r, i) => (
+                <ResultCard key={i} result={r} />
+              ))}
+              {analyzing && (
+                <div style={{ padding: 24, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, textAlign: "center" }}>
+                  <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 12, color: C.textDim }}>
+                    analyzing {progress.currentName}...
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </main>
+    </>
+  );
+}
+
+function ResultCard({ result }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (result.error) {
+    return (
+      <div style={{ padding: 16, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 12 }}>
+        <div style={{ fontWeight: 600, color: "#dc2626", fontSize: 14, marginBottom: 4 }}>{result.location}</div>
+        <div style={{ fontSize: 13, color: "#b91c1c" }}>{result.error}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: "#ffffff", border: "1px solid #e8e8e5", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{ padding: "16px 20px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}
+      >
+        <span style={{ fontSize: 20 }}>{sentimentEmoji[result.overall_sentiment]}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, color: "#111110", fontSize: 14 }}>{result.location}</div>
+          <div style={{ fontSize: 12, color: "#a8a89e", marginTop: 2, fontFamily: "'Geist Mono', monospace" }}>
+            {result.count} reviews · {result.overall_sentiment} · {result.sentiment_score}/10
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: sentimentColor[result.overall_sentiment] }}>
+            {result.sentiment_score}/10
+          </div>
+        </div>
+        <span style={{ color: "#a8a89e", fontSize: 11, marginLeft: 8 }}>{expanded ? "▲" : "▼"}</span>
+      </div>
+
+      {expanded && (
+        <div style={{ padding: "0 20px 20px", borderTop: "1px solid #e8e8e5", paddingTop: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+          <p style={{ margin: 0, color: "#6b6b63", lineHeight: 1.75, fontSize: 14 }}>{result.summary}</p>
+
+          {result.key_quote && (
+            <div style={{ padding: 14, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8 }}>
+              <div style={{ fontSize: 10, color: "#92400e", fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Key Quote</div>
+              <p style={{ margin: 0, fontStyle: "italic", color: "#78350f", fontSize: 13 }}>"{result.key_quote}"</p>
+            </div>
+          )}
+
+          {result.themes?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 10, color: "#a8a89e", fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Themes</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {result.themes.map((theme) => (
+                  <span key={theme} style={{ padding: "3px 10px", borderRadius: 20, fontSize: 12, background: "#f4f4f2", color: "#6b6b63", border: "1px solid #e8e8e5" }}>
+                    {sentimentEmoji[result.sentiment_per_theme?.[theme]]} {theme}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {result.pain_points?.length > 0 && (
+              <div style={{ padding: 14, background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca" }}>
+                <div style={{ fontSize: 10, color: "#dc2626", fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Pain Points</div>
+                <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {result.pain_points.map((p, i) => <li key={i} style={{ color: "#b91c1c", fontSize: 13 }}>{p}</li>)}
+                </ul>
+              </div>
+            )}
+            {result.praise_points?.length > 0 && (
+              <div style={{ padding: 14, background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0" }}>
+                <div style={{ fontSize: 10, color: "#16a34a", fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Praise</div>
+                <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {result.praise_points.map((p, i) => <li key={i} style={{ color: "#15803d", fontSize: 13 }}>{p}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          {result.feature_requests?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 10, color: "#a8a89e", fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Feature Requests</div>
+              <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
+                {result.feature_requests.map((f, i) => <li key={i} style={{ fontSize: 13, color: "#6b6b63" }}>{f}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
