@@ -1,20 +1,6 @@
-//v4
+// v5
 "use client";
-import { useState, useEffect } from "react";
-
-const sentimentColor = {
-  positive: "#16a34a",
-  negative: "#dc2626",
-  mixed: "#d97706",
-  neutral: "#6b7280",
-};
-
-const sentimentEmoji = {
-  positive: "🟢",
-  negative: "🔴",
-  mixed: "🟡",
-  neutral: "⚪",
-};
+import { useState, useRef } from "react";
 
 const C = {
   bg: "#fafaf9",
@@ -22,114 +8,269 @@ const C = {
   bgMuted: "#f4f4f2",
   border: "#e8e8e5",
   borderStrong: "#d0d0cb",
-  accent: "#1a1a1a",
   blue: "#2563eb",
   textPrimary: "#111110",
   textSecondary: "#6b6b63",
   textDim: "#a8a89e",
 };
 
-const MOCK_RESULT = {
-  url: "trustpilot.com/review/notion.so",
-  source_type: "trustpilot",
-  overall_sentiment: "mixed",
-  sentiment_score: 6,
-  confidence: "high",
-  summary: "Notion users praise its flexibility and all-in-one workspace but consistently report a steep learning curve and sluggish mobile performance. Long-term users remain loyal while new users cite onboarding friction as a key frustration.",
-  key_quote: "Incredibly powerful once you learn it — but that learning curve is a real barrier.",
-  themes: ["onboarding", "mobile performance", "pricing", "collaboration"],
-  sentiment_per_theme: { onboarding: "negative", "mobile performance": "negative", pricing: "positive", collaboration: "positive" },
-  pain_points: ["Steep learning curve for new users", "Mobile app feels sluggish", "Database features confusing without tutorials"],
-  praise_points: ["Highly flexible workspace", "Great for team wikis and docs", "Reasonable pricing for what you get"],
-  competitor_mentions: ["Confluence", "Airtable", "Coda", "Obsidian"],
-  feature_requests: ["Better mobile experience", "Simpler onboarding templates"],
-};
+// ─── CSV Parser ──────────────────────────────────────────────
+function parseCSV(text) {
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  function parseAllRows(str) {
+    const rows = []; let row = []; let current = ""; let inQuotes = false; let i = 0;
+    while (i < str.length) {
+      const ch = str[i];
+      if (ch === '"') {
+        if (inQuotes && str[i+1] === '"') { current += '"'; i += 2; continue; }
+        inQuotes = !inQuotes; i++; continue;
+      }
+      if (ch === "," && !inQuotes) { row.push(current); current = ""; i++; continue; }
+      if (ch === "\n" && !inQuotes) {
+        row.push(current); current = "";
+        if (row.some(c => c.trim())) rows.push(row);
+        row = []; i++; continue;
+      }
+      current += ch; i++;
+    }
+    row.push(current);
+    if (row.some(c => c.trim())) rows.push(row);
+    return rows;
+  }
+  const allRows = parseAllRows(normalized);
+  if (allRows.length < 2) return [];
+  const headers = allRows[0].map(h => h.trim());
+  return allRows.slice(1).map(values => {
+    const obj = {};
+    headers.forEach((h, idx) => { obj[h] = (values[idx] || "").trim(); });
+    return obj;
+  });
+}
 
-function Tag({ children, color = C.blue }) {
+// ─── Pure Math Analytics ─────────────────────────────────────
+function computeLocationStats(rows, groupByField) {
+  const groups = {};
+
+  rows.forEach(row => {
+    // Dynamic: use whatever column the user picked
+    const key = (row[groupByField] || "").trim() || "Unknown";
+    if (key === "Unknown" || key === "") return;
+    // Filter noise rows (long numeric IDs, corporate rollup)
+    if (/^\d{5,}/.test(key) || key.toLowerCase().includes("corporate rollup")) return;
+
+    if (!groups[key]) {
+      groups[key] = {
+        name: key,
+        region: row["Region"] || "",
+        division: row["Division"] || "",
+        state: row["State"] || "",
+        city: row["City"] || "",
+        business: row["Business Name"] || "",
+        rows: [],
+        ratings: [],
+        comments: [],
+        sources: {},
+        ratingDist: {0:0, 1:0, 2:0, 3:0, 4:0, 5:0},
+      };
+    }
+    const g = groups[key];
+    g.rows.push(row);
+    const rating = parseFloat(row["Review Rating"]);
+    if (!isNaN(rating)) {
+      g.ratings.push(rating);
+      const bucket = Math.round(Math.min(5, Math.max(0, rating)));
+      g.ratingDist[bucket] = (g.ratingDist[bucket] || 0) + 1;
+    }
+    const comment = (row["Review Comment"] || "").trim();
+    if (comment) g.comments.push({ text: comment, rating, date: row["Date Posted On"], source: row["Review Source"] });
+    const src = row["Review Source"] || "Other";
+    g.sources[src] = (g.sources[src] || 0) + 1;
+  });
+
+  // Compute derived stats
+  return Object.values(groups).map(g => {
+    const avg = g.ratings.length ? g.ratings.reduce((a,b) => a+b, 0) / g.ratings.length : null;
+    const negative = g.ratings.filter(r => r <= 2).length;
+    const positive = g.ratings.filter(r => r >= 4).length;
+    const pctNegative = g.ratings.length ? Math.round((negative / g.ratings.length) * 100) : 0;
+    const pctPositive = g.ratings.length ? Math.round((positive / g.ratings.length) * 100) : 0;
+    // Health score 0-100: weighted avg + volume bonus
+    const healthScore = avg !== null ? Math.round((avg / 5) * 85 + Math.min(15, g.ratings.length / 10)) : 0;
+    return {
+      ...g,
+      avg: avg !== null ? Math.round(avg * 10) / 10 : null,
+      total: g.rows.length,
+      ratedCount: g.ratings.length,
+      commentCount: g.comments.length,
+      negative,
+      positive,
+      pctNegative,
+      pctPositive,
+      healthScore,
+      topSource: Object.entries(g.sources).sort((a,b) => b[1]-a[1])[0]?.[0] || "",
+    };
+  }).sort((a, b) => (a.avg ?? 99) - (b.avg ?? 99));
+}
+
+// ─── Components ──────────────────────────────────────────────
+function RatingBar({ dist, total }) {
   return (
-    <span style={{
-      display: "inline-block", padding: "2px 10px",
-      background: color === C.blue ? "#eff6ff" : "transparent",
-      border: `1px solid ${color === C.blue ? "#bfdbfe" : C.border}`,
-      borderRadius: 20, fontSize: 12, color, margin: 2,
-    }}>{children}</span>
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      {[5,4,3,2,1,0].map(star => {
+        const count = dist[star] || 0;
+        const pct = total ? Math.round((count/total)*100) : 0;
+        const color = star >= 4 ? "#16a34a" : star >= 3 ? "#d97706" : "#dc2626";
+        return (
+          <div key={star} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 10, color: C.textDim, width: 12, textAlign: "right" }}>{star}★</span>
+            <div style={{ flex: 1, height: 6, background: C.bgMuted, borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 3, transition: "width 0.3s" }} />
+            </div>
+            <span style={{ fontSize: 10, color: C.textDim, width: 28 }}>{count}</span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
-function ResultCard({ result }) {
-  const [expanded, setExpanded] = useState(false);
-  if (result.error) {
-    return (
-      <div style={{ padding: 16, background: "#fef2f2", border: `1px solid #fecaca`, borderRadius: 12, marginBottom: 12 }}>
-        <div style={{ fontWeight: 600, color: "#dc2626", marginBottom: 4 }}>Failed</div>
-        <div style={{ fontSize: 13, color: C.textDim, marginBottom: 4 }}>{result.url}</div>
-        <div style={{ fontSize: 13, color: "#ef4444" }}>{result.error}</div>
-      </div>
-    );
-  }
+function HealthBadge({ score }) {
+  const color = score >= 75 ? "#16a34a" : score >= 55 ? "#d97706" : "#dc2626";
+  const bg = score >= 75 ? "#f0fdf4" : score >= 55 ? "#fffbeb" : "#fef2f2";
+  const border = score >= 75 ? "#bbf7d0" : score >= 55 ? "#fde68a" : "#fecaca";
+  const label = score >= 75 ? "Healthy" : score >= 55 ? "Needs attention" : "Critical";
   return (
-    <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, marginBottom: 12, overflow: "hidden", background: C.bgCard, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-      <div onClick={() => setExpanded(!expanded)} style={{ padding: 16, cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
-        <span style={{ fontSize: 18 }}>{sentimentEmoji[result.overall_sentiment]}</span>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, color: sentimentColor[result.overall_sentiment], textTransform: "capitalize", fontSize: 14 }}>
-            {result.overall_sentiment} — {result.sentiment_score}/10
+    <span style={{ padding: "2px 8px", background: bg, border: `1px solid ${border}`, borderRadius: 20, fontSize: 11, color, fontWeight: 600 }}>
+      {label}
+    </span>
+  );
+}
+
+function LocationRow({ loc, onDeepDive, deepDiveResult, deepDiving }) {
+  const [expanded, setExpanded] = useState(false);
+  const scoreColor = loc.avg >= 4.5 ? "#16a34a" : loc.avg >= 3.5 ? "#d97706" : "#dc2626";
+
+  return (
+    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 8 }}>
+      {/* Row header */}
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", cursor: "pointer" }}
+      >
+        {/* Score */}
+        <div style={{ textAlign: "center", minWidth: 48 }}>
+          <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: scoreColor, lineHeight: 1 }}>
+            {loc.avg ?? "—"}
           </div>
-          <div style={{ fontSize: 12, color: C.textDim, marginTop: 2, fontFamily: "monospace" }}>{result.url.replace("https://", "").slice(0, 60)}</div>
+          <div style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>/ 5.0</div>
         </div>
+
+        {/* Name + meta */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, color: C.textPrimary, marginBottom: 3 }}>{loc.name}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {loc.region && <span style={{ fontSize: 11, color: C.textDim, fontFamily: "monospace" }}>{loc.region}</span>}
+            {loc.state && <span style={{ fontSize: 11, color: C.textDim, fontFamily: "monospace" }}>{loc.state}</span>}
+            <span style={{ fontSize: 11, color: C.textDim, fontFamily: "monospace" }}>{loc.ratedCount} reviews</span>
+            {loc.pctNegative > 0 && (
+              <span style={{ fontSize: 11, color: "#dc2626", fontFamily: "monospace" }}>{loc.pctNegative}% negative</span>
+            )}
+          </div>
+        </div>
+
+        {/* Health badge */}
+        <HealthBadge score={loc.healthScore} />
+
+        {/* Deep dive button */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onDeepDive(loc); }}
+          disabled={deepDiving}
+          style={{
+            padding: "6px 12px", borderRadius: 8,
+            border: `1px solid ${deepDiveResult ? C.blue : C.border}`,
+            background: deepDiveResult ? "#eff6ff" : "white",
+            color: deepDiveResult ? C.blue : C.textSecondary,
+            fontSize: 12, fontWeight: 500, cursor: deepDiving ? "wait" : "pointer",
+            fontFamily: "'Geist', sans-serif", whiteSpace: "nowrap",
+          }}
+        >
+          {deepDiving ? "analyzing..." : deepDiveResult ? "✓ AI Analysis" : "Deep Dive →"}
+        </button>
+
         <span style={{ color: C.textDim, fontSize: 11 }}>{expanded ? "▲" : "▼"}</span>
       </div>
+
+      {/* Expanded stats */}
       {expanded && (
-        <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 12, paddingTop: 16 }}>
-          <p style={{ margin: 0, color: C.textSecondary, lineHeight: 1.75, fontSize: 14 }}>{result.summary}</p>
-          <div style={{ padding: 14, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8 }}>
-            <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 11, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.06em" }}>Key Quote</div>
-            <p style={{ margin: 0, fontStyle: "italic", color: "#78350f", fontSize: 13 }}>"{result.key_quote}"</p>
+        <div style={{ borderTop: `1px solid ${C.border}`, padding: "16px", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+          {/* Rating distribution */}
+          <div>
+            <div style={{ fontSize: 11, color: C.textDim, fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Rating distribution</div>
+            <RatingBar dist={loc.ratingDist} total={loc.ratedCount} />
           </div>
-          {result.themes && result.themes.length > 0 && (
-            <div>
-              <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Themes</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {result.themes.map((theme) => (
-                  <span key={theme} style={{ padding: "3px 10px", borderRadius: 20, fontSize: 12, background: C.bgMuted, color: C.textSecondary, border: `1px solid ${C.border}` }}>
-                    {sentimentEmoji[result.sentiment_per_theme?.[theme]]} {theme}
-                  </span>
-                ))}
-              </div>
+
+          {/* Quick stats */}
+          <div>
+            <div style={{ fontSize: 11, color: C.textDim, fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Stats</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {[
+                ["Total reviews", loc.total],
+                ["With ratings", loc.ratedCount],
+                ["With comments", loc.commentCount],
+                ["5-star", loc.ratingDist[5] || 0],
+                ["1-star or below", (loc.ratingDist[0]||0) + (loc.ratingDist[1]||0)],
+                ["Top source", loc.topSource],
+              ].map(([label, val]) => (
+                <div key={label} style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 12, color: C.textSecondary }}>{label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: C.textPrimary, fontFamily: "monospace" }}>{val}</span>
+                </div>
+              ))}
             </div>
-          )}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {result.pain_points?.length > 0 && (
-              <div style={{ padding: 14, background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca" }}>
-                <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 11, color: "#dc2626", textTransform: "uppercase", letterSpacing: "0.06em" }}>Pain Points</div>
-                <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
-                  {result.pain_points.map((p, i) => <li key={i} style={{ color: "#b91c1c", fontSize: 13 }}>{p}</li>)}
-                </ul>
-              </div>
-            )}
-            {result.praise_points?.length > 0 && (
-              <div style={{ padding: 14, background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0" }}>
-                <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 11, color: "#16a34a", textTransform: "uppercase", letterSpacing: "0.06em" }}>Praise</div>
-                <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
-                  {result.praise_points.map((p, i) => <li key={i} style={{ color: "#15803d", fontSize: 13 }}>{p}</li>)}
-                </ul>
-              </div>
-            )}
           </div>
-          {result.competitor_mentions?.length > 0 && (
-            <div>
-              <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Competitors</div>
-              <div style={{ display: "flex", flexWrap: "wrap" }}>
-                {result.competitor_mentions.map((c, i) => <Tag key={i}>{c}</Tag>)}
-              </div>
+
+          {/* Recent comments preview */}
+          <div>
+            <div style={{ fontSize: 11, color: C.textDim, fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Recent comments</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {loc.comments.slice(0, 3).map((c, i) => (
+                <div key={i} style={{ fontSize: 12, color: C.textSecondary, lineHeight: 1.5, borderLeft: `2px solid ${C.border}`, paddingLeft: 8 }}>
+                  {c.text.slice(0, 80)}{c.text.length > 80 ? "..." : ""}
+                </div>
+              ))}
             </div>
-          )}
-          {result.feature_requests?.length > 0 && (
-            <div>
-              <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Feature Requests</div>
-              <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
-                {result.feature_requests.map((f, i) => <li key={i} style={{ color: C.textSecondary, fontSize: 13 }}>{f}</li>)}
-              </ul>
+          </div>
+
+          {/* Claude deep dive result */}
+          {deepDiveResult && (
+            <div style={{ gridColumn: "1 / -1", marginTop: 8, padding: 16, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10 }}>
+              <div style={{ fontSize: 11, color: C.blue, fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>AI Deep Dive</div>
+              <p style={{ fontSize: 13, color: C.textSecondary, lineHeight: 1.75, marginBottom: 12 }}>{deepDiveResult.summary}</p>
+              {deepDiveResult.key_quote && (
+                <div style={{ padding: 10, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, marginBottom: 12 }}>
+                  <span style={{ fontSize: 12, fontStyle: "italic", color: "#78350f" }}>"{deepDiveResult.key_quote}"</span>
+                </div>
+              )}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                {deepDiveResult.pain_points?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 10, color: "#dc2626", fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Pain Points</div>
+                    {deepDiveResult.pain_points.slice(0,4).map((p,i) => <div key={i} style={{ fontSize: 12, color: "#b91c1c", marginBottom: 3 }}>· {p}</div>)}
+                  </div>
+                )}
+                {deepDiveResult.praise_points?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 10, color: "#16a34a", fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Praise</div>
+                    {deepDiveResult.praise_points.slice(0,4).map((p,i) => <div key={i} style={{ fontSize: 12, color: "#15803d", marginBottom: 3 }}>· {p}</div>)}
+                  </div>
+                )}
+                {deepDiveResult.themes?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 10, color: C.textDim, fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Themes</div>
+                    {deepDiveResult.themes.slice(0,4).map((t,i) => <div key={i} style={{ fontSize: 12, color: C.textSecondary, marginBottom: 3 }}>· {t}</div>)}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -138,564 +279,260 @@ function ResultCard({ result }) {
   );
 }
 
-function BatchSummary({ results }) {
-  const successful = results.filter((r) => !r.error);
-  if (!successful.length) return null;
-  const avgScore = (successful.reduce((sum, r) => sum + (r.sentiment_score || 0), 0) / successful.length).toFixed(1);
-  const sentimentCounts = successful.reduce((acc, r) => { acc[r.overall_sentiment] = (acc[r.overall_sentiment] || 0) + 1; return acc; }, {});
-  const allCompetitors = [...new Set(successful.flatMap((r) => r.competitor_mentions || []))];
-  const allPainPoints = successful.flatMap((r) => r.pain_points || []).slice(0, 6);
-  return (
-    <div style={{ padding: 24, background: C.bgCard, borderRadius: 16, border: `1px solid ${C.border}`, marginBottom: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 16, color: C.textPrimary }}>Batch Summary — {successful.length} sources analyzed</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
-        <div style={{ padding: 16, background: "#eff6ff", borderRadius: 10, textAlign: "center", border: "1px solid #bfdbfe" }}>
-          <div style={{ fontSize: 26, fontWeight: 800, color: C.blue }}>{avgScore}</div>
-          <div style={{ fontSize: 11, color: C.textDim, marginTop: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Avg Score</div>
-        </div>
-        {Object.entries(sentimentCounts).map(([sentiment, count]) => (
-          <div key={sentiment} style={{ padding: 16, background: C.bgMuted, borderRadius: 10, textAlign: "center", border: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: 26, fontWeight: 800, color: sentimentColor[sentiment] }}>{count}</div>
-            <div style={{ fontSize: 11, color: C.textDim, marginTop: 4, textTransform: "capitalize" }}>{sentiment}</div>
-          </div>
-        ))}
-      </div>
-      {allCompetitors.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 8, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>Competitors Surfaced</div>
-          <div style={{ display: "flex", flexWrap: "wrap" }}>
-            {allCompetitors.map((c, i) => <Tag key={i}>{c}</Tag>)}
-          </div>
-        </div>
-      )}
-      {allPainPoints.length > 0 && (
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 8, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>Top Pain Points</div>
-          <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
-            {allPainPoints.map((p, i) => <li key={i} style={{ fontSize: 13, color: C.textSecondary }}>{p}</li>)}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default function Home() {
-  const [mode, setMode] = useState("single");
+// ─── Main Page ───────────────────────────────────────────────
+export default function UploadPage() {
+  const [rows, setRows] = useState([]);
+  const [availableColumns, setAvailableColumns] = useState([]);
+  const [file, setFile] = useState(null);
+  const [groupBy, setGroupBy] = useState("location");
+  const [stats, setStats] = useState([]);
   const [projectName, setProjectName] = useState("");
-  const [url, setUrl] = useState("");
-  const [batchUrls, setBatchUrls] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState("");
-  const [result, setResult] = useState(null);
-  const [batchResults, setBatchResults] = useState(null);
-  const [error, setError] = useState(null);
-  const [mounted, setMounted] = useState(false);
+  const [filterText, setFilterText] = useState("");
+  const [sortBy, setSortBy] = useState("avg_asc"); // avg_asc, avg_desc, volume, negative
+  const [deepDiveResults, setDeepDiveResults] = useState({});
+  const [deepDiving, setDeepDiving] = useState({});
+  const [step, setStep] = useState("upload");
+  const fileRef = useRef();
 
-  useEffect(() => { setMounted(true); }, []);
-
-  async function analyzeSingle() {
-    if (!url) return;
-    setLoading(true); setError(null); setResult(null);
-    try {
-      const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, project_name: projectName || "default" }) });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setResult(data);
-    } catch (err) { setError(err.message); }
-    finally { setLoading(false); }
+  function handleFile(f) {
+    if (!f) return;
+    setFile(f);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const parsed = parseCSV(e.target.result);
+      setRows(parsed);
+      // Extract all column names from first row
+      const cols = parsed.length > 0 ? Object.keys(parsed[0]) : [];
+      setAvailableColumns(cols);
+      // Pick a smart default: prefer Location, then first column
+      const preferred = ["Location", "Business Name", "Region", "Division", "State", "City"];
+      const defaultCol = preferred.find(p => cols.includes(p)) || cols[0] || "";
+      setGroupBy(defaultCol);
+      const computed = computeLocationStats(parsed, defaultCol);
+      setStats(computed);
+      setStep("dashboard");
+    };
+    reader.readAsText(f);
   }
 
-  async function analyzeBatch() {
-    const urls = batchUrls.split("\n").map((u) => u.trim()).filter(Boolean);
-    if (!urls.length) return;
-    setLoading(true); setError(null); setBatchResults(null);
-    setProgress("Analyzing " + urls.length + " sources...");
-    try {
-      const res = await fetch("/api/analyze", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls, project_name: projectName || "default" }) });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setBatchResults(data.results);
-    } catch (err) { setError(err.message); }
-    finally { setLoading(false); setProgress(""); }
+  function handleGroupByChange(col) {
+    setGroupBy(col);
+    if (rows.length > 0) {
+      setStats(computeLocationStats(rows, col));
+      setDeepDiveResults({});
+    }
   }
 
-  const hasResults = result || batchResults;
+  async function runDeepDive(loc) {
+    setDeepDiving(prev => ({ ...prev, [loc.name]: true }));
+    const reviewText = loc.comments
+      .map(c => `Rating: ${c.rating}/5 | ${c.text}`)
+      .join("\n\n")
+      .slice(0, 12000);
+
+    try {
+      const res = await fetch("/api/analyze-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: reviewText,
+          label: loc.name,
+          source: `csv_${groupBy}`,
+          reviewCount: loc.commentCount,
+          project_name: projectName || "default",
+        }),
+      });
+      const data = await res.json();
+      setDeepDiveResults(prev => ({ ...prev, [loc.name]: data }));
+    } catch (err) {
+      setDeepDiveResults(prev => ({ ...prev, [loc.name]: { error: err.message } }));
+    }
+    setDeepDiving(prev => ({ ...prev, [loc.name]: false }));
+  }
+
+  // Sorting + filtering
+  const filtered = stats.filter(s =>
+    s.name.toLowerCase().includes(filterText.toLowerCase()) ||
+    s.region.toLowerCase().includes(filterText.toLowerCase()) ||
+    s.state.toLowerCase().includes(filterText.toLowerCase())
+  );
+
+  const sorted = [...filtered].sort((a, b) => {
+    switch (sortBy) {
+      case "avg_asc":  return (a.avg ?? 99) - (b.avg ?? 99);
+      case "avg_desc": return (b.avg ?? 0) - (a.avg ?? 0);
+      case "volume":   return b.total - a.total;
+      case "negative": return b.pctNegative - a.pctNegative;
+      default: return 0;
+    }
+  });
+
+  // Overview stats
+  const totalReviews = stats.reduce((s, l) => s + l.ratedCount, 0);
+  const overallAvg = stats.length ? Math.round(stats.reduce((s, l) => s + (l.avg || 0) * l.ratedCount, 0) / totalReviews * 10) / 10 : 0;
+  const criticalCount = stats.filter(l => l.healthScore < 55).length;
+  const healthyCount = stats.filter(l => l.healthScore >= 75).length;
 
   return (
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html { scroll-behavior: smooth; }
         body { background: #fafaf9; }
-        .input-field:focus { outline: none; border-color: #2563eb !important; box-shadow: 0 0 0 3px rgba(37,99,235,0.08) !important; }
-        .analyze-btn:hover:not(:disabled) { background: #333 !important; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; }
-        .analyze-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .analyze-btn, .mode-btn, .nav-btn, .cta-btn { transition: all 0.15s ease; }
         .nav-link:hover { border-color: #d0d0cb !important; color: #111110 !important; }
-        .step-card:hover { background: #f8f8f6 !important; }
-        .buyer-card:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.08) !important; transform: translateY(-2px); }
-        .pill:hover { border-color: #d0d0cb !important; color: #6b6b63 !important; }
-        .arrow-anim { animation: bounce 1.8s ease-in-out infinite; }
-        @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(6px)} }
-        .fade-up { opacity: 0; transform: translateY(18px); animation: fadeUp 0.6s ease forwards; }
-        .d1{animation-delay:0.05s} .d2{animation-delay:0.16s} .d3{animation-delay:0.27s} .d4{animation-delay:0.38s} .d5{animation-delay:0.49s}
-        @keyframes fadeUp { to { opacity:1; transform:translateY(0); } }
-        .cta-btn:hover { background: #f0f0ee !important; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,0.2) !important; }
+        .drop-zone:hover { border-color: #2563eb !important; background: #eff6ff !important; }
+        .sort-btn:hover { border-color: #d0d0cb !important; }
+        .group-btn:hover { border-color: #2563eb !important; }
       `}</style>
 
-      <div style={{ fontFamily: "'Geist', system-ui, sans-serif", color: "#111110", minHeight: "100vh", background: "#fafaf9" }}>
+      {/* NAV */}
+      <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 48px", borderBottom: "1px solid #e8e8e5", background: "rgba(250,250,249,0.95)", position: "sticky", top: 0, zIndex: 100, backdropFilter: "blur(8px)", fontFamily: "'Geist', sans-serif" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 28, height: 28, background: "#1a1a1a", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 13, fontWeight: 700, fontFamily: "'Libre Baskerville', serif" }}>P</div>
+          <span style={{ fontFamily: "'Libre Baskerville', serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.01em", color: "#111110" }}>Pulse</span>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <a href="/" className="nav-link" style={{ padding: "7px 16px", border: "1px solid #e8e8e5", borderRadius: 8, color: "#6b6b63", fontSize: 13, fontWeight: 500, textDecoration: "none" }}>Analyzer</a>
+          <a href="/dashboard" className="nav-link" style={{ padding: "7px 16px", border: "1px solid #e8e8e5", borderRadius: 8, color: "#6b6b63", fontSize: 13, fontWeight: 500, textDecoration: "none" }}>Dashboard</a>
+        </div>
+      </nav>
 
-        {/* NAV */}
-        <nav style={{
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-          padding: "16px 48px", borderBottom: "1px solid #e8e8e5",
-          background: "rgba(250,250,249,0.95)", position: "sticky", top: 0, zIndex: 100,
-          backdropFilter: "blur(8px)",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{
-              width: 28, height: 28, background: "#1a1a1a", borderRadius: 7,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: "white", fontSize: 13, fontWeight: 700,
-              fontFamily: "'Libre Baskerville', serif",
-            }}>P</div>
-            <span style={{ fontFamily: "'Libre Baskerville', serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.01em" }}>Pulse</span>
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <a href="/dashboard" className="nav-link" style={{
-              padding: "7px 16px", border: "1px solid #e8e8e5", borderRadius: 8,
-              color: "#6b6b63", fontSize: 13, fontWeight: 500, textDecoration: "none",
-            }}>Dashboard</a>
-          </div>
-        </nav>
+      <main style={{ maxWidth: 1100, margin: "0 auto", padding: "40px 24px 80px", fontFamily: "'Geist', sans-serif" }}>
 
-        {/* HERO — only show when no results */}
-        {!hasResults && !loading && (
+        {/* UPLOAD STEP */}
+        {step === "upload" && (
           <>
-            <div style={{ maxWidth: 760, margin: "0 auto", padding: "96px 24px 0", textAlign: "center" }}>
+            <div style={{ marginBottom: 32 }}>
+              <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11, color: C.blue, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>CSV Upload</div>
+              <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 30, fontWeight: 700, color: C.textPrimary, letterSpacing: "-0.02em", marginBottom: 8 }}>Instant location dashboard</h1>
+              <p style={{ fontSize: 15, color: C.textSecondary, lineHeight: 1.7 }}>Upload your CSV and get an instant dashboard from ratings data. Click any location for an AI deep dive.</p>
+            </div>
 
-              <div className="fade-up d1" style={{ marginBottom: 28 }}>
-                <span style={{
-                  display: "inline-flex", alignItems: "center", gap: 6,
-                  padding: "4px 12px", background: "#eff6ff",
-                  border: "1px solid #bfdbfe", borderRadius: 20,
-                  fontSize: 12, color: "#2563eb", fontFamily: "'Geist Mono', monospace",
-                }}>
-                  <span style={{ width: 5, height: 5, background: "#2563eb", borderRadius: "50%" }} />
-                  AI-powered review intelligence
-                </span>
-              </div>
-
-              <h1 className="fade-up d2" style={{
-                fontFamily: "'Libre Baskerville', serif",
-                fontSize: "clamp(38px, 5.5vw, 60px)",
-                fontWeight: 700, lineHeight: 1.1,
-                letterSpacing: "-0.02em", color: "#111110", marginBottom: 20,
-              }}>
-                Turn reviews into<br /><em style={{ fontStyle: "italic", color: "#2563eb" }}>structured intelligence</em>
-              </h1>
-
-              <p className="fade-up d3" style={{
-                fontSize: 17, color: "#6b6b63", lineHeight: 1.75,
-                maxWidth: 520, margin: "0 auto 32px",
-              }}>
-                Paste URLs from review sites. Get back competitor mentions, sentiment by theme, pain points, and a brief-ready summary — in seconds.
-              </p>
-
-              {/* Pills */}
-              <div className="fade-up d4" style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: 8, marginBottom: 28 }}>
-                {["G2", "Trustpilot", "Capterra", "Product Hunt", "App Store"].map((s) => (
-                  <span key={s} className="pill" style={{
-                    padding: "4px 12px", background: "#f4f4f2",
-                    border: "1px solid #e8e8e5", borderRadius: 20,
-                    fontSize: 12, color: "#a8a89e",
-                    fontFamily: "'Geist Mono', monospace",
-                  }}>{s}</span>
+            <div
+              className="drop-zone"
+              onClick={() => fileRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); }}
+              onDrop={(e) => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); }}
+              style={{ border: "2px dashed #e8e8e5", borderRadius: 16, padding: "64px 40px", textAlign: "center", cursor: "pointer", background: C.bgCard, transition: "all 0.2s" }}
+            >
+              <div style={{ fontSize: 40, marginBottom: 16 }}>📊</div>
+              <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: C.textPrimary, marginBottom: 8 }}>Drop your CSV here</div>
+              <p style={{ color: C.textSecondary, fontSize: 14, marginBottom: 20 }}>Instant dashboard · no waiting · AI on demand</p>
+              <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+                {["Business Name", "Region", "Division", "Location", "City", "State", "Review Comment", "Review Rating"].map(col => (
+                  <span key={col} style={{ padding: "3px 10px", background: C.bgMuted, border: `1px solid ${C.border}`, borderRadius: 20, fontSize: 11, color: C.textDim, fontFamily: "'Geist Mono', monospace" }}>{col}</span>
                 ))}
               </div>
-
-              {/* Arrow */}
-              <div className="fade-up d5" style={{ marginBottom: 16 }}>
-                <svg className="arrow-anim" width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ margin: "0 auto", display: "block", opacity: 0.3 }}>
-                  <path d="M12 5v14M5 12l7 7 7-7" stroke="#1a1a1a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </div>
-            </div>
-
-            {/* Analyzer card */}
-            <div className="fade-up d5" style={{ maxWidth: 680, margin: "0 auto", padding: "0 24px 0" }}>
-              <div style={{
-                background: "white", border: "1px solid #e8e8e5", borderRadius: 16, padding: 20,
-                boxShadow: "0 1px 4px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.04)",
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <div style={{ display: "flex", gap: 2, background: "#f4f4f2", padding: 3, borderRadius: 8, width: "fit-content", border: "1px solid #e8e8e5" }}>
-                    {["single", "batch"].map((m) => (
-                      <button key={m} className="mode-btn" onClick={() => setMode(m)} style={{
-                        padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer",
-                        background: mode === m ? "white" : "transparent",
-                        color: mode === m ? "#111110" : "#a8a89e",
-                        fontWeight: 500, fontSize: 12, fontFamily: "'Geist', sans-serif",
-                        boxShadow: mode === m ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                      }}>
-                        {m === "single" ? "Single URL" : "Batch"}
-                      </button>
-                    ))}
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Project name (optional)"
-                    value={projectName}
-                    onChange={(e) => setProjectName(e.target.value)}
-                    style={{
-                      padding: "5px 12px", borderRadius: 6, border: "1px solid #e8e8e5",
-                      background: "#fafaf9", color: "#111110", fontSize: 12,
-                      fontFamily: "'Geist Mono', monospace", width: 200, outline: "none",
-                    }}
-                    onFocus={(e) => { e.target.style.borderColor = "#2563eb"; }}
-                    onBlur={(e) => { e.target.style.borderColor = "#e8e8e5"; }}
-                  />
-                </div>
-
-                {mode === "single" && (
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input
-                      className="input-field"
-                      type="text"
-                      placeholder="https://www.g2.com/products/..."
-                      value={url}
-                      onChange={(e) => setUrl(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && analyzeSingle()}
-                      style={{
-                        flex: 1, padding: "11px 14px", borderRadius: 8,
-                        border: "1px solid #e8e8e5", background: "#fafaf9",
-                        color: "#111110", fontSize: 13,
-                        fontFamily: "'Geist Mono', monospace",
-                      }}
-                    />
-                    <button className="analyze-btn" onClick={analyzeSingle} disabled={loading} style={{
-                      padding: "11px 22px", borderRadius: 8, border: "none",
-                      background: "#1a1a1a", color: "white", fontSize: 13, fontWeight: 600,
-                      cursor: "pointer", fontFamily: "'Geist', sans-serif", whiteSpace: "nowrap",
-                    }}>
-                      Analyze →
-                    </button>
-                  </div>
-                )}
-
-                {mode === "batch" && (
-                  <div>
-                    <textarea
-                      className="input-field"
-                      placeholder={"https://www.trustpilot.com/review/notion.so\nhttps://www.g2.com/products/notion/reviews\nhttps://www.capterra.com/p/notion/reviews/"}
-                      value={batchUrls}
-                      onChange={(e) => setBatchUrls(e.target.value)}
-                      rows={5}
-                      style={{
-                        width: "100%", padding: "11px 14px", borderRadius: 8,
-                        border: "1px solid #e8e8e5", background: "#fafaf9",
-                        color: "#111110", fontSize: 13,
-                        fontFamily: "'Geist Mono', monospace", resize: "vertical", lineHeight: 1.7,
-                      }}
-                    />
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-                      <span style={{ fontSize: 12, color: "#a8a89e", fontFamily: "'Geist Mono', monospace" }}>
-                        {batchUrls.split("\n").filter((u) => u.trim()).length} URLs
-                      </span>
-                      <button className="analyze-btn" onClick={analyzeBatch} disabled={loading} style={{
-                        padding: "9px 18px", borderRadius: 8, border: "none",
-                        background: "#1a1a1a", color: "white", fontSize: 13, fontWeight: 600,
-                        cursor: "pointer", fontFamily: "'Geist', sans-serif",
-                      }}>
-                        Analyze All →
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Stats bar */}
-            <div style={{
-              display: "flex", justifyContent: "center", gap: 64,
-              padding: "28px 48px", marginTop: 64,
-              background: "#f4f4f2", borderTop: "1px solid #e8e8e5", borderBottom: "1px solid #e8e8e5",
-            }}>
-              {[["10+", "Sources supported"], ["<30s", "Per analysis"], ["8", "Intelligence signals"], ["100%", "Brief-ready output"]].map(([num, label]) => (
-                <div key={label} style={{ textAlign: "center" }}>
-                  <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24, fontWeight: 700, color: "#111110" }}>{num}</div>
-                  <div style={{ fontSize: 12, color: "#a8a89e", marginTop: 2, fontFamily: "'Geist Mono', monospace" }}>{label}</div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ borderTop: "1px solid #e8e8e5" }} />
-
-            {/* How it works */}
-            <div style={{ maxWidth: 960, margin: "0 auto", padding: "88px 24px" }}>
-              <div style={{ textAlign: "center", marginBottom: 48 }}>
-                <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11, color: "#2563eb", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>How it works</div>
-                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: "clamp(26px, 3.5vw, 40px)", fontWeight: 700, color: "#111110", lineHeight: 1.2, letterSpacing: "-0.02em" }}>
-                  From raw URLs to a client brief<br />in three steps
-                </h2>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "1px", background: "#e8e8e5", borderRadius: 12, overflow: "hidden", border: "1px solid #e8e8e5" }}>
-                {[
-                  { num: "01", icon: "⌘", title: "Paste your URLs", desc: "Drop in links from G2, Trustpilot, Capterra, or any review platform. Single URL or batch up to 10 at once." },
-                  { num: "02", icon: "◈", title: "AI reads everything", desc: "Claude extracts and classifies every review — themes, sentiment per theme, pain points, praise, and competitor mentions." },
-                  { num: "03", icon: "◎", title: "Get structured intelligence", desc: "A brief-ready summary, key quotes, and a dashboard your stakeholders can actually act on." },
-                ].map((item) => (
-                  <div key={item.num} className="step-card" style={{ background: "white", padding: "32px 28px" }}>
-                    <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11, color: "#a8a89e", marginBottom: 16 }}>{item.num}</div>
-                    <div style={{ fontSize: 22, marginBottom: 14 }}>{item.icon}</div>
-                    <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 16, fontWeight: 700, color: "#111110", marginBottom: 8 }}>{item.title}</div>
-                    <p style={{ fontSize: 14, color: "#6b6b63", lineHeight: 1.7 }}>{item.desc}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ borderTop: "1px solid #e8e8e5" }} />
-
-            {/* Sample output */}
-            <div style={{ maxWidth: 960, margin: "0 auto", padding: "88px 24px" }}>
-              <div style={{ textAlign: "center", marginBottom: 48 }}>
-                <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11, color: "#2563eb", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Sample output</div>
-                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: "clamp(26px, 3.5vw, 40px)", fontWeight: 700, color: "#111110", lineHeight: 1.2, letterSpacing: "-0.02em" }}>
-                  This is what you get back
-                </h2>
-              </div>
-              <div style={{ background: "white", border: "1px solid #e8e8e5", borderRadius: 16, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.05)" }}>
-                <div style={{ padding: "16px 24px", borderBottom: "1px solid #e8e8e5", background: "#f4f4f2", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontFamily: "'Geist Mono', monospace", fontSize: 12, color: "#a8a89e" }}>trustpilot.com/review/notion.so</span>
-                  <span style={{ padding: "2px 8px", background: "#eff6ff", borderRadius: 4, fontFamily: "'Geist Mono', monospace", fontSize: 10, color: "#2563eb", letterSpacing: "0.05em", textTransform: "uppercase" }}>Example</span>
-                </div>
-                <div style={{ padding: 24 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-                    <span style={{ fontSize: 26 }}>🟡</span>
-                    <div>
-                      <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, fontWeight: 700, color: "#d97706" }}>Mixed — 6/10</div>
-                      <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11, color: "#a8a89e", marginTop: 2 }}>trustpilot · confidence: high</div>
-                    </div>
-                  </div>
-                  <p style={{ fontSize: 14, color: "#6b6b63", lineHeight: 1.75, marginBottom: 20 }}>{MOCK_RESULT.summary}</p>
-                  <div style={{ padding: 16, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, marginBottom: 20 }}>
-                    <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 10, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Key Quote</div>
-                    <p style={{ margin: 0, fontStyle: "italic", color: "#78350f", fontSize: 14 }}>"{MOCK_RESULT.key_quote}"</p>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 20 }}>
-                    <div>
-                      <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 10, color: "#dc2626", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Pain Points</div>
-                      {MOCK_RESULT.pain_points.map((p, i) => <div key={i} style={{ fontSize: 13, color: "#6b6b63", lineHeight: 1.75, paddingLeft: 12, position: "relative" }}><span style={{ position: "absolute", left: 0, color: "#a8a89e" }}>–</span>{p}</div>)}
-                    </div>
-                    <div>
-                      <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 10, color: "#16a34a", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Praise</div>
-                      {MOCK_RESULT.praise_points.map((p, i) => <div key={i} style={{ fontSize: 13, color: "#6b6b63", lineHeight: 1.75, paddingLeft: 12, position: "relative" }}><span style={{ position: "absolute", left: 0, color: "#a8a89e" }}>–</span>{p}</div>)}
-                    </div>
-                    <div>
-                      <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 10, color: "#2563eb", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Competitors</div>
-                      <div>{MOCK_RESULT.competitor_mentions.map((c, i) => <Tag key={i}>{c}</Tag>)}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ borderTop: "1px solid #e8e8e5" }} />
-
-            {/* Who it's for */}
-            <div style={{ maxWidth: 960, margin: "0 auto", padding: "88px 24px" }}>
-              <div style={{ textAlign: "center", marginBottom: 48 }}>
-                <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11, color: "#2563eb", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Who it's for</div>
-                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: "clamp(26px, 3.5vw, 40px)", fontWeight: 700, color: "#111110", lineHeight: 1.2, letterSpacing: "-0.02em" }}>
-                  Built for people who turn<br />data into decisions
-                </h2>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-                {[
-                  {
-                    icon: "🏢", title: "Agency Consultants",
-                    desc: "Deliver competitive intelligence briefs to clients in hours, not days. Replace manual review reading with structured AI output you can brand and present.",
-                    points: ["Run reports across multiple clients", "Brief-ready summaries out of the box", "Surface competitor mentions automatically", "Organize by project per client"],
-                  },
-                  {
-                    icon: "⚙️", title: "Product Teams",
-                    desc: "Stop guessing what users want. Mine review sites for feature requests, pain points, and competitor comparisons — automatically structured for your next sprint.",
-                    points: ["Extract feature requests from hundreds of reviews", "Track sentiment shifts over time", "Know which competitors are mentioned and why", "Per-theme sentiment breakdowns"],
-                  },
-                ].map((buyer) => (
-                  <div key={buyer.title} className="buyer-card" style={{ background: "white", border: "1px solid #e8e8e5", borderRadius: 16, padding: 36, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-                    <div style={{ fontSize: 26, marginBottom: 16 }}>{buyer.icon}</div>
-                    <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 20, fontWeight: 700, color: "#111110", marginBottom: 10 }}>{buyer.title}</div>
-                    <p style={{ fontSize: 14, color: "#6b6b63", lineHeight: 1.75, marginBottom: 20 }}>{buyer.desc}</p>
-                    <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
-                      {buyer.points.map((point, i) => (
-                        <li key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 14, color: "#6b6b63" }}>
-                          <span style={{ color: "#2563eb", marginTop: 1, flexShrink: 0, fontWeight: 600 }}>✓</span>{point}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ borderTop: "1px solid #e8e8e5" }} />
-
-            {/* CTA */}
-            <div style={{ maxWidth: 680, margin: "0 auto", padding: "88px 24px 100px" }}>
-              <div style={{ background: "#1a1a1a", borderRadius: 20, padding: "64px 48px", textAlign: "center" }}>
-                <h2 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: "clamp(26px, 3vw, 36px)", fontWeight: 700, color: "white", marginBottom: 14, letterSpacing: "-0.02em" }}>
-                  Ready to try it?
-                </h2>
-                <p style={{ fontSize: 15, color: "rgba(255,255,255,0.5)", marginBottom: 28, lineHeight: 1.7 }}>
-                  Paste your first URL and see structured intelligence in under 30 seconds. No setup required.
-                </p>
-                <button className="cta-btn" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} style={{
-                  padding: "13px 32px", background: "white", color: "#1a1a1a",
-                  border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600,
-                  cursor: "pointer", fontFamily: "'Geist', sans-serif",
-                }}>
-                  Analyze a URL →
-                </button>
-              </div>
+              <input ref={fileRef} type="file" accept=".csv" style={{ display: "none" }} onChange={(e) => handleFile(e.target.files[0])} />
             </div>
           </>
         )}
 
-        {/* Results view */}
-        {(hasResults || loading) && (
-          <div style={{ maxWidth: 720, margin: "0 auto", padding: "40px 24px 80px" }}>
-
-            <div style={{ display: "flex", gap: 2, marginBottom: 16, background: "#f4f4f2", padding: 3, borderRadius: 8, border: "1px solid #e8e8e5", width: "fit-content" }}>
-              {["single", "batch"].map((m) => (
-                <button key={m} className="mode-btn" onClick={() => setMode(m)} style={{
-                  padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer",
-                  background: mode === m ? "white" : "transparent",
-                  color: mode === m ? "#111110" : "#a8a89e",
-                  fontWeight: 500, fontSize: 12, fontFamily: "'Geist', sans-serif",
-                  boxShadow: mode === m ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                }}>
-                  {m === "single" ? "Single URL" : "Batch"}
+        {/* DASHBOARD STEP */}
+        {step === "dashboard" && (
+          <>
+            {/* Top bar */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+              <div>
+                <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 700, color: C.textPrimary, letterSpacing: "-0.02em", margin: 0 }}>{file?.name}</h1>
+                <div style={{ fontSize: 12, color: C.textDim, fontFamily: "'Geist Mono', monospace", marginTop: 4 }}>
+                  {totalReviews.toLocaleString()} reviews · {stats.length} groups · overall avg {overallAvg}★
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="text"
+                  placeholder="Project name..."
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  style={{ padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, fontFamily: "'Geist Mono', monospace", color: C.textPrimary, background: C.bgCard, width: 180, outline: "none" }}
+                />
+                <button onClick={() => { setStep("upload"); setRows([]); setStats([]); setFile(null); }} style={{ padding: "7px 14px", border: `1px solid ${C.border}`, borderRadius: 8, background: "white", color: C.textSecondary, fontSize: 12, cursor: "pointer", fontFamily: "'Geist', sans-serif" }}>
+                  New file
                 </button>
+              </div>
+            </div>
+
+            {/* Overview KPIs */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
+              {[
+                { label: "Overall avg", value: overallAvg + "★", color: overallAvg >= 4.5 ? "#16a34a" : overallAvg >= 3.5 ? "#d97706" : "#dc2626" },
+                { label: "Total reviews", value: totalReviews.toLocaleString(), color: C.blue },
+                { label: "Healthy locations", value: healthyCount, color: "#16a34a" },
+                { label: "Critical locations", value: criticalCount, color: "#dc2626" },
+              ].map(kpi => (
+                <div key={kpi.label} style={{ padding: 18, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, textAlign: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                  <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 26, fontWeight: 700, color: kpi.color }}>{kpi.value}</div>
+                  <div style={{ fontSize: 11, color: C.textDim, marginTop: 4, fontFamily: "'Geist Mono', monospace", textTransform: "uppercase", letterSpacing: "0.05em" }}>{kpi.label}</div>
+                </div>
               ))}
             </div>
 
-            {mode === "single" && (
-              <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-                <input className="input-field" type="text" placeholder="https://www.g2.com/products/..." value={url}
-                  onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && analyzeSingle()}
-                  style={{ flex: 1, padding: "11px 14px", borderRadius: 8, border: "1px solid #e8e8e5", background: "#fafaf9", color: "#111110", fontSize: 13, fontFamily: "'Geist Mono', monospace" }}
+            {/* Controls */}
+            <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
+              {/* Group by — dynamic columns from CSV */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: C.textDim, fontFamily: "'Geist Mono', monospace" }}>Group by</span>
+                <select
+                  value={groupBy}
+                  onChange={(e) => handleGroupByChange(e.target.value)}
+                  style={{
+                    padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 8,
+                    background: "white", color: C.textPrimary, fontSize: 12, cursor: "pointer",
+                    fontFamily: "'Geist', sans-serif", outline: "none", fontWeight: 500,
+                  }}
+                >
+                  {availableColumns.map(col => (
+                    <option key={col} value={col}>{col}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Sort */}
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{
+                padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 8,
+                background: "white", color: C.textSecondary, fontSize: 12, cursor: "pointer",
+                fontFamily: "'Geist', sans-serif", outline: "none",
+              }}>
+                <option value="avg_asc">Worst first</option>
+                <option value="avg_desc">Best first</option>
+                <option value="negative">Most negative %</option>
+                <option value="volume">Most reviews</option>
+              </select>
+
+              {/* Search */}
+              <input
+                type="text"
+                placeholder="Filter locations..."
+                value={filterText}
+                onChange={(e) => setFilterText(e.target.value)}
+                style={{
+                  padding: "7px 12px", border: `1px solid ${C.border}`, borderRadius: 8,
+                  background: "white", color: C.textPrimary, fontSize: 12,
+                  fontFamily: "'Geist', sans-serif", outline: "none", width: 200,
+                }}
+              />
+
+              <div style={{ marginLeft: "auto", fontSize: 12, color: C.textDim, fontFamily: "'Geist Mono', monospace" }}>
+                {sorted.length} of {stats.length} groups
+              </div>
+            </div>
+
+            {/* Location list */}
+            <div>
+              {sorted.map(loc => (
+                <LocationRow
+                  key={loc.name}
+                  loc={loc}
+                  onDeepDive={runDeepDive}
+                  deepDiveResult={deepDiveResults[loc.name]}
+                  deepDiving={!!deepDiving[loc.name]}
                 />
-                <button className="analyze-btn" onClick={analyzeSingle} disabled={loading} style={{ padding: "11px 22px", borderRadius: 8, border: "none", background: "#1a1a1a", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Geist', sans-serif" }}>
-                  Analyze →
-                </button>
-              </div>
-            )}
-
-            {mode === "batch" && (
-              <div style={{ marginBottom: 24 }}>
-                <textarea className="input-field" placeholder="One URL per line..." value={batchUrls} onChange={(e) => setBatchUrls(e.target.value)} rows={4}
-                  style={{ width: "100%", padding: "11px 14px", borderRadius: 8, border: "1px solid #e8e8e5", background: "#fafaf9", color: "#111110", fontSize: 13, fontFamily: "'Geist Mono', monospace", resize: "vertical", lineHeight: 1.7 }}
-                />
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-                  <button className="analyze-btn" onClick={analyzeBatch} disabled={loading} style={{ padding: "9px 18px", borderRadius: 8, border: "none", background: "#1a1a1a", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Geist', sans-serif" }}>
-                    Analyze All →
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {error && <div style={{ padding: 16, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, color: "#b91c1c", marginBottom: 24, fontSize: 14 }}>{error}</div>}
-
-            {loading && (
-              <div style={{ textAlign: "center", padding: 64 }}>
-                <div style={{ fontSize: 13, fontFamily: "'Geist Mono', monospace", color: "#2563eb", marginBottom: 8 }}>analyzing...</div>
-                <p style={{ color: "#a8a89e", fontSize: 14 }}>{progress || "Scraping and analyzing — about 15 seconds"}</p>
-              </div>
-            )}
-
-            {batchResults && (
-              <div>
-                <BatchSummary results={batchResults} />
-                <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 12, color: "#a8a89e", textTransform: "uppercase", letterSpacing: "0.06em" }}>Individual Results</div>
-                {batchResults.map((r, i) => <ResultCard key={i} result={r} />)}
-              </div>
-            )}
-
-            {result && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ padding: 24, background: "white", borderRadius: 16, border: "1px solid #e8e8e5", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-                    <span style={{ fontSize: 26 }}>{sentimentEmoji[result.overall_sentiment]}</span>
-                    <div>
-                      <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, fontWeight: 700, textTransform: "capitalize", color: sentimentColor[result.overall_sentiment] }}>
-                        {result.overall_sentiment} — {result.sentiment_score}/10
-                      </div>
-                      <div style={{ fontFamily: "'Geist Mono', monospace", color: "#a8a89e", fontSize: 11, marginTop: 2 }}>{result.source_type} · confidence: {result.confidence}</div>
-                    </div>
-                  </div>
-                  <p style={{ color: "#6b6b63", lineHeight: 1.75, margin: 0, fontSize: 14 }}>{result.summary}</p>
-                </div>
-                <div style={{ padding: 18, background: "#fffbeb", borderRadius: 10, border: "1px solid #fde68a" }}>
-                  <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 11, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.06em" }}>Key Quote</div>
-                  <p style={{ margin: 0, fontStyle: "italic", color: "#78350f", fontSize: 14 }}>"{result.key_quote}"</p>
-                </div>
-                {result.themes?.length > 0 && (
-                  <div style={{ padding: 18, background: "white", borderRadius: 10, border: "1px solid #e8e8e5" }}>
-                    <div style={{ fontWeight: 600, marginBottom: 10, fontSize: 11, color: "#a8a89e", textTransform: "uppercase", letterSpacing: "0.06em" }}>Themes</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {result.themes.map((theme) => (
-                        <span key={theme} style={{ padding: "4px 12px", borderRadius: 20, fontSize: 12, background: "#f4f4f2", color: "#6b6b63", border: "1px solid #e8e8e5" }}>
-                          {sentimentEmoji[result.sentiment_per_theme?.[theme]]} {theme}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  {result.pain_points?.length > 0 && (
-                    <div style={{ padding: 18, background: "#fef2f2", borderRadius: 10, border: "1px solid #fecaca" }}>
-                      <div style={{ fontWeight: 600, marginBottom: 10, fontSize: 11, color: "#dc2626", textTransform: "uppercase", letterSpacing: "0.06em" }}>Pain Points</div>
-                      <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 5 }}>
-                        {result.pain_points.map((p, i) => <li key={i} style={{ color: "#b91c1c", fontSize: 13 }}>{p}</li>)}
-                      </ul>
-                    </div>
-                  )}
-                  {result.praise_points?.length > 0 && (
-                    <div style={{ padding: 18, background: "#f0fdf4", borderRadius: 10, border: "1px solid #bbf7d0" }}>
-                      <div style={{ fontWeight: 600, marginBottom: 10, fontSize: 11, color: "#16a34a", textTransform: "uppercase", letterSpacing: "0.06em" }}>Praise</div>
-                      <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 5 }}>
-                        {result.praise_points.map((p, i) => <li key={i} style={{ color: "#15803d", fontSize: 13 }}>{p}</li>)}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  {result.competitor_mentions?.length > 0 && (
-                    <div style={{ padding: 18, background: "white", borderRadius: 10, border: "1px solid #e8e8e5" }}>
-                      <div style={{ fontWeight: 600, marginBottom: 10, fontSize: 11, color: "#a8a89e", textTransform: "uppercase", letterSpacing: "0.06em" }}>Competitors</div>
-                      <div style={{ display: "flex", flexWrap: "wrap" }}>
-                        {result.competitor_mentions.map((c, i) => <Tag key={i}>{c}</Tag>)}
-                      </div>
-                    </div>
-                  )}
-                  {result.feature_requests?.length > 0 && (
-                    <div style={{ padding: 18, background: "white", borderRadius: 10, border: "1px solid #e8e8e5" }}>
-                      <div style={{ fontWeight: 600, marginBottom: 10, fontSize: 11, color: "#a8a89e", textTransform: "uppercase", letterSpacing: "0.06em" }}>Feature Requests</div>
-                      <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 5 }}>
-                        {result.feature_requests.map((f, i) => <li key={i} style={{ fontSize: 13, color: "#6b6b63" }}>{f}</li>)}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          </>
         )}
-      </div>
+      </main>
     </>
   );
 }
