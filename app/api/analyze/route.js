@@ -1,4 +1,4 @@
-//v2
+//v3
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 
@@ -162,7 +162,7 @@ ${truncatedText}
 
 export async function POST(request) {
   try {
-    const { url, project_name } = await request.json();
+    const { url, project_name, competitor_id, client_id } = await request.json();
     if (!url) return Response.json({ error: "URL is required" }, { status: 400 });
 
     const sourceType = detectSource(url);
@@ -174,16 +174,20 @@ export async function POST(request) {
 
     const analysis = await analyzeContent(rawText, sourceType);
 
-    const { error } = await supabase.from("analyses").insert({
+    const insertData = {
       url,
       source_type: sourceType,
       project_name: project_name || "default",
       ...analysis,
-    });
+    };
+    if (client_id) insertData.client_id = client_id;
+    if (competitor_id) insertData.competitor_id = competitor_id;
+
+    const { error } = await supabase.from("analyses").insert(insertData);
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
-    return Response.json({ success: true, url, source_type: sourceType, project_name: project_name || "default", ...analysis });
+    return Response.json({ success: true, url, source_type: sourceType, project_name: project_name || "default", client_id: client_id || null, competitor_id: competitor_id || null, ...analysis });
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 });
   }
