@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, use } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -17,7 +17,7 @@ const sentimentBg = { positive:"#f0fdf4", negative:"#fef2f2", mixed:"#fffbeb", n
 const sentimentBorder = { positive:"#bbf7d0", negative:"#fecaca", mixed:"#fde68a", neutral:"#e5e7eb" };
 
 export default function ClientDetailPage({ params }) {
-  const { id } = params;
+  const { id } = use(params);
   const [client, setClient] = useState(null);
   const [competitors, setCompetitors] = useState([]);
   const [analyses, setAnalyses] = useState([]);
