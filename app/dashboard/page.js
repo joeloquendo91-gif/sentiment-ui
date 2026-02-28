@@ -70,30 +70,36 @@ export default function Dashboard() {
   useEffect(() => { if (selectedClient) fetchClientData(selectedClient); }, [selectedClient]);
 
   async function fetchClients() {
-    const res = await fetch("/api/clients");
-    const data = await res.json();
-    const list = Array.isArray(data) ? data : [];
-    setClients(list);
-    if (list.length > 0) setSelectedClient(list[0].id);
-    else setLoading(false);
+    try {
+      const res = await fetch("/api/clients");
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+      setClients(list);
+      if (list.length > 0) setSelectedClient(list[0].id);
+      else setLoading(false);
+    } catch(err) {
+      console.error("Failed to fetch clients:", err);
+      setLoading(false);
+    }
   }
 
   async function fetchClientData(clientId) {
     setLoading(true);
-    const [analysesRes, competitorsRes] = await Promise.all([
-      fetch(`/api/analyses?client_id=${clientId}`),
-      fetch(`/api/competitors?client_id=${clientId}`),
-    ]);
-    const analysesData = await analysesRes.json();
-    const competitorsData = await competitorsRes.json();
-    const allAnalyses = Array.isArray(analysesData) ? analysesData : [];
-    const allCompetitors = Array.isArray(competitorsData) ? competitorsData : [];
-    setAnalyses(allAnalyses);
-    setCompetitors(allCompetitors);
-    // Fetch saved insights
-    const insightsRes = await fetch(`/api/insights?client_id=${clientId}`);
-    const insightsData = await insightsRes.json();
-    setInsights(insightsData);
+    try {
+      const [analysesRes, competitorsRes, insightsRes] = await Promise.all([
+        fetch(`/api/analyses?client_id=${clientId}`),
+        fetch(`/api/competitors?client_id=${clientId}`),
+        fetch(`/api/insights?client_id=${clientId}`),
+      ]);
+      const analysesData = await analysesRes.json().catch(()=>[]);
+      const competitorsData = await competitorsRes.json().catch(()=>[]);
+      const insightsData = await insightsRes.json().catch(()=>null);
+      setAnalyses(Array.isArray(analysesData) ? analysesData : []);
+      setCompetitors(Array.isArray(competitorsData) ? competitorsData : []);
+      setInsights(insightsData);
+    } catch(err) {
+      console.error("Failed to fetch client data:", err);
+    }
     setLoading(false);
   }
 

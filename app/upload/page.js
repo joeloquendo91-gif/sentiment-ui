@@ -1,4 +1,4 @@
-// v9
+// v4
 "use client";
 import { useState, useRef } from "react";
 
@@ -424,8 +424,9 @@ export default function UploadPage() {
           <span style={{ fontFamily:"'Libre Baskerville', serif", fontWeight:700, fontSize:17, letterSpacing:"-0.01em", color:"#111110" }}>Pulse</span>
         </div>
         <div style={{ display:"flex", gap:8 }}>
-          <a href="/" className="nav-link" style={{ padding:"7px 16px", border:"1px solid #e8e8e5", borderRadius:8, color:"#6b6b63", fontSize:13, fontWeight:500, textDecoration:"none" }}>Analyzer</a>
-          <a href="/dashboard" className="nav-link" style={{ padding:"7px 16px", border:"1px solid #e8e8e5", borderRadius:8, color:"#6b6b63", fontSize:13, fontWeight:500, textDecoration:"none" }}>Dashboard</a>
+          {[["Analyze","/"],["Competitor Research","/clients"],["CSV Upload","/upload"],["Dashboard","/dashboard"]].map(([label,href])=>(
+            <a key={href} href={href} className="nav-link" style={{ padding:"7px 16px", border:"1px solid #e8e8e5", borderRadius:8, color:href==="/upload"?"#111110":"#6b6b63", fontWeight:href==="/upload"?600:500, background:href==="/upload"?"white":"transparent", fontSize:13, textDecoration:"none" }}>{label}</a>
+          ))}
         </div>
       </nav>
 
