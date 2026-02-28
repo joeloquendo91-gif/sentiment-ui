@@ -264,7 +264,7 @@ export default function Home() {
             <span style={{ fontFamily: "'Libre Baskerville', serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.01em" }}>Pulse</span>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {[["Analyze", "/"], ["Clients", "/clients"], ["CSV Upload", "/upload"], ["Dashboard", "/dashboard"]].map(([label, href]) => (
+            {[["Analyze", "/"], ["Competitor Research", "/clients"], ["CSV Upload", "/upload"], ["Dashboard", "/dashboard"]].map(([label, href]) => (
               <a key={href} href={href} className="nav-link" style={{
                 padding: "7px 16px", border: "1px solid #e8e8e5", borderRadius: 8,
                 color: href === "/" ? "#111110" : "#6b6b63",
