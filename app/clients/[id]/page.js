@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, use } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -17,7 +17,7 @@ const sentimentBg = { positive:"#f0fdf4", negative:"#fef2f2", mixed:"#fffbeb", n
 const sentimentBorder = { positive:"#bbf7d0", negative:"#fecaca", mixed:"#fde68a", neutral:"#e5e7eb" };
 
 export default function ClientDetailPage({ params }) {
-  const { id } = use(params);
+  const { id } = params;
   const [client, setClient] = useState(null);
   const [competitors, setCompetitors] = useState([]);
   const [analyses, setAnalyses] = useState([]);
@@ -281,6 +281,11 @@ export default function ClientDetailPage({ params }) {
                   {resultForThis?.error && (
                     <div style={{ padding:"12px 20px", borderTop:`1px solid ${C.border}`, background:"#fef2f2" }}>
                       <span style={{ fontSize:13, color:"#dc2626" }}>Error: {resultForThis.error}</span>
+                    </div>
+                  )}
+                  {resultForThis && !resultForThis.error && (
+                    <div style={{ padding:"12px 20px", borderTop:`1px solid ${C.border}`, background:C.bgMuted, display:"flex", justifyContent:"flex-end" }}>
+                      <a href="/dashboard" style={{ padding:"7px 16px", background:"#1a1a1a", borderRadius:8, color:"white", fontSize:12, fontWeight:600, textDecoration:"none", fontFamily:"'Geist', sans-serif" }}>View in Dashboard →</a>
                     </div>
                   )}
 

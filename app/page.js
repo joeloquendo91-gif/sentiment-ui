@@ -29,19 +29,19 @@ const C = {
 };
 
 const MOCK_RESULT = {
-  url: "trustpilot.com/review/notion.so",
-  source_type: "trustpilot",
+  url: "yelp.com/biz/regional-medical-center",
+  source_type: "yelp",
   overall_sentiment: "mixed",
-  sentiment_score: 6,
+  sentiment_score: 4,
   confidence: "high",
-  summary: "Notion users praise its flexibility and all-in-one workspace but consistently report a steep learning curve and sluggish mobile performance. Long-term users remain loyal while new users cite onboarding friction as a key frustration.",
-  key_quote: "Incredibly powerful once you learn it — but that learning curve is a real barrier.",
-  themes: ["onboarding", "mobile performance", "pricing", "collaboration"],
-  sentiment_per_theme: { onboarding: "negative", "mobile performance": "negative", pricing: "positive", collaboration: "positive" },
-  pain_points: ["Steep learning curve for new users", "Mobile app feels sluggish", "Database features confusing without tutorials"],
-  praise_points: ["Highly flexible workspace", "Great for team wikis and docs", "Reasonable pricing for what you get"],
-  competitor_mentions: ["Confluence", "Airtable", "Coda", "Obsidian"],
-  feature_requests: ["Better mobile experience", "Simpler onboarding templates"],
+  summary: "Regional Medical Center receives strong praise for its surgical and cardiac care teams, but patient experience is consistently undermined by long ER wait times, billing confusion, and difficulty reaching providers after discharge. Clinical excellence is the clear strength — operational experience is the gap.",
+  key_quote: "The surgical team saved my father's life and we couldn't be more grateful — but the billing process afterward was an absolute nightmare.",
+  themes: ["staff communication", "wait times", "billing & insurance", "clinical quality", "follow-up care"],
+  sentiment_per_theme: { "staff communication": "negative", "wait times": "negative", "billing & insurance": "negative", "clinical quality": "positive", "follow-up care": "negative" },
+  pain_points: ["ER wait times averaging 4–6 hours", "Billing statements hard to understand", "Difficult to reach doctor after discharge"],
+  praise_points: ["Highly skilled cardiac surgeons", "Compassionate nursing staff", "Advanced diagnostic capabilities"],
+  competitor_mentions: ["St. Mary's Medical", "Northside Hospital", "Metro Health System"],
+  feature_requests: ["Real-time ER wait time visibility", "Clearer billing communication", "Better after-hours nurse line"],
 };
 
 function Tag({ children, color = C.blue }) {
@@ -263,8 +263,10 @@ export default function Home() {
             <span style={{ fontFamily: "'Libre Baskerville', serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.01em" }}>Pulse</span>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <a href="/upload" className="nav-link" style={{ padding: "7px 16px", border: "1px solid #e8e8e5", borderRadius: 8, color: "#6b6b63", fontSize: 13, fontWeight: 500, textDecoration: "none" }}>CSV Upload</a>
-            <a href="/dashboard" className="nav-link" style={{ padding: "7px 16px", border: "1px solid #e8e8e5", borderRadius: 8, color: "#6b6b63", fontSize: 13, fontWeight: 500, textDecoration: "none" }}>Dashboard</a>
+            <a href="/dashboard" className="nav-link" style={{
+              padding: "7px 16px", border: "1px solid #e8e8e5", borderRadius: 8,
+              color: "#6b6b63", fontSize: 13, fontWeight: 500, textDecoration: "none",
+            }}>Dashboard</a>
           </div>
         </nav>
 
@@ -466,15 +468,15 @@ export default function Home() {
               </div>
               <div style={{ background: "white", border: "1px solid #e8e8e5", borderRadius: 16, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.05)" }}>
                 <div style={{ padding: "16px 24px", borderBottom: "1px solid #e8e8e5", background: "#f4f4f2", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontFamily: "'Geist Mono', monospace", fontSize: 12, color: "#a8a89e" }}>trustpilot.com/review/notion.so</span>
+                  <span style={{ fontFamily: "'Geist Mono', monospace", fontSize: 12, color: "#a8a89e" }}>yelp.com/biz/regional-medical-center</span>
                   <span style={{ padding: "2px 8px", background: "#eff6ff", borderRadius: 4, fontFamily: "'Geist Mono', monospace", fontSize: 10, color: "#2563eb", letterSpacing: "0.05em", textTransform: "uppercase" }}>Example</span>
                 </div>
                 <div style={{ padding: 24 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
                     <span style={{ fontSize: 26 }}>🟡</span>
                     <div>
-                      <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, fontWeight: 700, color: "#d97706" }}>Mixed — 6/10</div>
-                      <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11, color: "#a8a89e", marginTop: 2 }}>trustpilot · confidence: high</div>
+                      <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 18, fontWeight: 700, color: "#d97706" }}>Mixed — 4/10</div>
+                      <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 11, color: "#a8a89e", marginTop: 2 }}>yelp · confidence: high</div>
                     </div>
                   </div>
                   <p style={{ fontSize: 14, color: "#6b6b63", lineHeight: 1.75, marginBottom: 20 }}>{MOCK_RESULT.summary}</p>
@@ -617,6 +619,13 @@ export default function Home() {
             {batchResults && (
               <div>
                 <BatchSummary results={batchResults} />
+                <a href="/dashboard" style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 20px", background:"#1a1a1a", borderRadius:10, textDecoration:"none", marginBottom:16 }}>
+                  <div>
+                    <div style={{ color:"white", fontWeight:600, fontSize:14, fontFamily:"'Geist', sans-serif" }}>View in Dashboard →</div>
+                    <div style={{ color:"rgba(255,255,255,0.45)", fontSize:12, fontFamily:"'Geist Mono', monospace", marginTop:2 }}>See all {batchResults.length} analyses alongside your data</div>
+                  </div>
+                  <span style={{ color:"rgba(255,255,255,0.3)", fontSize:20 }}>↗</span>
+                </a>
                 <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 12, color: "#a8a89e", textTransform: "uppercase", letterSpacing: "0.06em" }}>Individual Results</div>
                 {batchResults.map((r, i) => <ResultCard key={i} result={r} />)}
               </div>
@@ -624,6 +633,13 @@ export default function Home() {
 
             {result && (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <a href="/dashboard" style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 20px", background:"#1a1a1a", borderRadius:10, textDecoration:"none", marginBottom:4 }}>
+                  <div>
+                    <div style={{ color:"white", fontWeight:600, fontSize:14, fontFamily:"'Geist', sans-serif" }}>View in Dashboard →</div>
+                    <div style={{ color:"rgba(255,255,255,0.45)", fontSize:12, fontFamily:"'Geist Mono', monospace", marginTop:2 }}>See this analysis alongside all your data</div>
+                  </div>
+                  <span style={{ color:"rgba(255,255,255,0.3)", fontSize:20 }}>↗</span>
+                </a>
                 <div style={{ padding: 24, background: "white", borderRadius: 16, border: "1px solid #e8e8e5", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
                     <span style={{ fontSize: 26 }}>{sentimentEmoji[result.overall_sentiment]}</span>
