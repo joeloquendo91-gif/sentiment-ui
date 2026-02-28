@@ -1,4 +1,3 @@
-//v2
 "use client";
 import { useState, useEffect } from "react";
 
@@ -191,14 +190,45 @@ export default function Home() {
   const [batchResults, setBatchResults] = useState(null);
   const [error, setError] = useState(null);
   const [mounted, setMounted] = useState(false);
+  const [clients, setClients] = useState([]);
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [showNewClient, setShowNewClient] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [creatingClient, setCreatingClient] = useState(false);
 
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => { setMounted(true); fetchClients(); }, []);
+
+  async function fetchClients() {
+    try {
+      const res = await fetch("/api/clients");
+      const data = await res.json();
+      setClients(Array.isArray(data) ? data : []);
+    } catch(e) {}
+  }
+
+  async function createClient() {
+    if (!newClientName.trim()) return;
+    setCreatingClient(true);
+    try {
+      const res = await fetch("/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newClientName.trim() }),
+      });
+      const data = await res.json();
+      setClients(prev => [data, ...prev]);
+      setSelectedClientId(data.id);
+      setNewClientName("");
+      setShowNewClient(false);
+    } catch(e) {}
+    setCreatingClient(false);
+  }
 
   async function analyzeSingle() {
     if (!url) return;
     setLoading(true); setError(null); setResult(null);
     try {
-      const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, project_name: projectName || "default" }) });
+      const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, project_name: projectName || "default", client_id: selectedClientId || undefined }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setResult(data);
@@ -212,7 +242,7 @@ export default function Home() {
     setLoading(true); setError(null); setBatchResults(null);
     setProgress("Analyzing " + urls.length + " sources...");
     try {
-      const res = await fetch("/api/analyze", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls, project_name: projectName || "default" }) });
+      const res = await fetch("/api/analyze", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls, project_name: projectName || "default", client_id: selectedClientId || undefined }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setBatchResults(data.results);
@@ -264,7 +294,7 @@ export default function Home() {
             <span style={{ fontFamily: "'Libre Baskerville', serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.01em" }}>Pulse</span>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {[["Analyze", "/"], ["Competitor Research", "/clients"], ["CSV Upload", "/upload"], ["Dashboard", "/dashboard"]].map(([label, href]) => (
+            {[["Analyze", "/"], ["Clients", "/clients"], ["CSV Upload", "/upload"], ["Dashboard", "/dashboard"]].map(([label, href]) => (
               <a key={href} href={href} className="nav-link" style={{
                 padding: "7px 16px", border: "1px solid #e8e8e5", borderRadius: 8,
                 color: href === "/" ? "#111110" : "#6b6b63",
@@ -349,19 +379,37 @@ export default function Home() {
                       </button>
                     ))}
                   </div>
-                  <input
-                    type="text"
-                    placeholder="Project name (optional)"
-                    value={projectName}
-                    onChange={(e) => setProjectName(e.target.value)}
-                    style={{
-                      padding: "5px 12px", borderRadius: 6, border: "1px solid #e8e8e5",
-                      background: "#fafaf9", color: "#111110", fontSize: 12,
-                      fontFamily: "'Geist Mono', monospace", width: 200, outline: "none",
-                    }}
-                    onFocus={(e) => { e.target.style.borderColor = "#2563eb"; }}
-                    onBlur={(e) => { e.target.style.borderColor = "#e8e8e5"; }}
-                  />
+                  <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                    {!showNewClient ? (
+                      <select
+                        value={selectedClientId}
+                        onChange={(e) => {
+                          if (e.target.value === "__new__") { setShowNewClient(true); setSelectedClientId(""); }
+                          else setSelectedClientId(e.target.value);
+                        }}
+                        style={{ padding:"5px 10px", borderRadius:6, border:"1px solid #e8e8e5", background:"#fafaf9", color: selectedClientId ? "#111110" : "#a8a89e", fontSize:12, fontFamily:"'Geist', sans-serif", outline:"none", cursor:"pointer" }}
+                      >
+                        <option value="">Tag to client (optional)</option>
+                        {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        <option value="__new__">＋ Create new client</option>
+                      </select>
+                    ) : (
+                      <div style={{ display:"flex", gap:4 }}>
+                        <input
+                          autoFocus
+                          value={newClientName}
+                          onChange={e => setNewClientName(e.target.value)}
+                          onKeyDown={e => { if(e.key==="Enter") createClient(); if(e.key==="Escape") { setShowNewClient(false); setNewClientName(""); } }}
+                          placeholder="Client name..."
+                          style={{ padding:"5px 10px", borderRadius:6, border:"1px solid #2563eb", background:"white", color:"#111110", fontSize:12, fontFamily:"'Geist', sans-serif", outline:"none", width:160 }}
+                        />
+                        <button onClick={createClient} disabled={creatingClient||!newClientName.trim()} style={{ padding:"5px 10px", borderRadius:6, background:"#2563eb", color:"white", border:"none", fontSize:12, cursor:"pointer", fontFamily:"'Geist', sans-serif" }}>
+                          {creatingClient ? "..." : "Save"}
+                        </button>
+                        <button onClick={() => { setShowNewClient(false); setNewClientName(""); }} style={{ padding:"5px 8px", borderRadius:6, background:"transparent", color:"#a8a89e", border:"1px solid #e8e8e5", fontSize:12, cursor:"pointer" }}>✕</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {mode === "single" && (
