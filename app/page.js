@@ -263,10 +263,15 @@ export default function Home() {
             <span style={{ fontFamily: "'Libre Baskerville', serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.01em" }}>Pulse</span>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <a href="/dashboard" className="nav-link" style={{
-              padding: "7px 16px", border: "1px solid #e8e8e5", borderRadius: 8,
-              color: "#6b6b63", fontSize: 13, fontWeight: 500, textDecoration: "none",
-            }}>Dashboard</a>
+            {[["Analyze", "/"], ["Clients", "/clients"], ["CSV Upload", "/upload"], ["Dashboard", "/dashboard"]].map(([label, href]) => (
+              <a key={href} href={href} className="nav-link" style={{
+                padding: "7px 16px", border: "1px solid #e8e8e5", borderRadius: 8,
+                color: href === "/" ? "#111110" : "#6b6b63",
+                fontWeight: href === "/" ? 600 : 500,
+                background: href === "/" ? "white" : "transparent",
+                fontSize: 13, textDecoration: "none",
+              }}>{label}</a>
+            ))}
           </div>
         </nav>
 
