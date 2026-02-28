@@ -128,7 +128,7 @@ export default function ClientDetailPage({ params }) {
           <span style={{ fontFamily:"'Libre Baskerville', serif", fontWeight:700, fontSize:17, letterSpacing:"-0.01em", color:"#111110" }}>Pulse</span>
         </div>
         <div style={{ display:"flex", gap:8 }}>
-          {[["Analyze","/"],["Clients","/clients"],["CSV Upload","/upload"],["Dashboard","/dashboard"]].map(([label,href])=>(
+          {[["Analyze","/"],["Competitor Research","/clients"],["CSV Upload","/upload"],["Dashboard","/dashboard"]].map(([label,href])=>(
             <a key={href} href={href} className="nav-link" style={{ padding:"7px 16px", border:"1px solid #e8e8e5", borderRadius:8, color:"#6b6b63", fontSize:13, fontWeight:500, textDecoration:"none" }}>{label}</a>
           ))}
         </div>
@@ -138,7 +138,7 @@ export default function ClientDetailPage({ params }) {
 
         {/* Breadcrumb */}
         <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:32, fontSize:13, color:C.textDim }}>
-          <a href="/clients" style={{ color:C.textDim, textDecoration:"none" }}>Clients</a>
+          <a href="/clients" style={{ color:C.textDim, textDecoration:"none" }}>Competitor Research</a>
           <span>/</span>
           <span style={{ color:C.textPrimary }}>{client.name}</span>
         </div>

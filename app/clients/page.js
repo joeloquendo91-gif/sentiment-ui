@@ -73,7 +73,7 @@ export default function ClientsPage() {
           <span style={{ fontFamily:"'Libre Baskerville', serif", fontWeight:700, fontSize:17, letterSpacing:"-0.01em", color:"#111110" }}>Pulse</span>
         </div>
         <div style={{ display:"flex", gap:8 }}>
-          {[["Analyze","/"],["Clients","/clients"],["CSV Upload","/upload"],["Dashboard","/dashboard"]].map(([label,href])=>(
+          {[["Analyze","/"],["Competitor Research","/clients"],["CSV Upload","/upload"],["Dashboard","/dashboard"]].map(([label,href])=>(
             <a key={href} href={href} className="nav-link" style={{ padding:"7px 16px", border:"1px solid #e8e8e5", borderRadius:8, color: href==="/clients"?"#111110":"#6b6b63", fontSize:13, fontWeight: href==="/clients"?600:500, textDecoration:"none", background: href==="/clients"?"white":"transparent" }}>{label}</a>
           ))}
         </div>
@@ -82,8 +82,8 @@ export default function ClientsPage() {
       <main style={{ maxWidth:900, margin:"0 auto", padding:"48px 24px 80px", fontFamily:"'Geist', sans-serif" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:40 }}>
           <div>
-            <div style={{ fontFamily:"'Geist Mono', monospace", fontSize:11, color:C.blue, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:10 }}>Client Management</div>
-            <h1 style={{ fontFamily:"'Libre Baskerville', serif", fontSize:30, fontWeight:700, color:C.textPrimary, letterSpacing:"-0.02em", marginBottom:8 }}>Clients</h1>
+            <div style={{ fontFamily:"'Geist Mono', monospace", fontSize:11, color:C.blue, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:10 }}>Competitor Research</div>
+            <h1 style={{ fontFamily:"'Libre Baskerville', serif", fontSize:30, fontWeight:700, color:C.textPrimary, letterSpacing:"-0.02em", marginBottom:8 }}>Competitor Research</h1>
             <p style={{ fontSize:15, color:C.textSecondary, lineHeight:1.7 }}>Create a client to organize competitor analysis and intelligence reports.</p>
           </div>
           <button onClick={()=>setShowForm(!showForm)} className="btn-primary" style={{ padding:"10px 20px", background:C.blue, color:"white", border:"none", borderRadius:10, fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"'Geist', sans-serif", transition:"background 0.15s" }}>
