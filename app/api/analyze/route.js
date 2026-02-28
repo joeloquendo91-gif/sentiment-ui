@@ -192,3 +192,40 @@ export async function POST(request) {
     return Response.json({ error: err.message }, { status: 500 });
   }
 }
+export async function PUT(request) {
+  try {
+    const { urls, project_name, client_id, competitor_id } = await request.json();
+    if (!urls?.length) return Response.json({ error: "URLs required" }, { status: 400 });
+
+    const results = [];
+    for (const url of urls) {
+      try {
+        const sourceType = detectSource(url);
+        const rawText = await scrapeUrl(url, sourceType);
+        if (!rawText || rawText.length < 100) {
+          results.push({ url, error: "Not enough content extracted" });
+          continue;
+        }
+        const analysis = await analyzeContent(rawText, sourceType);
+        const insertData = {
+          url,
+          source_type: sourceType,
+          project_name: project_name || "default",
+          raw_text: rawText.slice(0, 50000),
+          ...analysis,
+        };
+        if (client_id) insertData.client_id = client_id;
+        if (competitor_id) insertData.competitor_id = competitor_id;
+        await supabase.from("analyses").insert(insertData);
+        results.push({ url, source_type: sourceType, ...analysis });
+      } catch (err) {
+        results.push({ url, error: err.message });
+      }
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
+    return Response.json({ success: true, results });
+  } catch (err) {
+    return Response.json({ error: err.message }, { status: 500 });
+  }
+}
