@@ -1,6 +1,6 @@
 // v4
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 const C = {
   bg: "#fafaf9", bgCard: "#ffffff", bgMuted: "#f4f4f2",
@@ -347,12 +347,44 @@ export default function UploadPage() {
   const [groupBy, setGroupBy] = useState("");
   const [availableColumns, setAvailableColumns] = useState([]);
   const [stats, setStats] = useState([]);
-  const [projectName, setProjectName] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [clients, setClients] = useState([]);
+  const [showNewClient, setShowNewClient] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [creatingClient, setCreatingClient] = useState(false);
   const [filterText, setFilterText] = useState("");
   const [sortBy, setSortBy] = useState("avg_asc");
   const [deepDiveResults, setDeepDiveResults] = useState({});
   const [deepDiving, setDeepDiving] = useState({});
   const [step, setStep] = useState("upload");
+
+  useEffect(() => { fetchClients(); }, []);
+
+  async function fetchClients() {
+    try {
+      const res = await fetch("/api/clients");
+      const data = await res.json();
+      setClients(Array.isArray(data) ? data : []);
+    } catch(e) {}
+  }
+
+  async function createClient() {
+    if (!newClientName.trim()) return;
+    setCreatingClient(true);
+    try {
+      const res = await fetch("/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newClientName.trim() }),
+      });
+      const data = await res.json();
+      setClients(prev => [data, ...prev]);
+      setSelectedClientId(data.id);
+      setNewClientName("");
+      setShowNewClient(false);
+    } catch(e) {}
+    setCreatingClient(false);
+  }
   const fileRef = useRef();
 
   function handleFile(f) {
@@ -386,7 +418,7 @@ export default function UploadPage() {
     setDeepDiving(prev=>({...prev,[loc.name]:true}));
     const reviewText = loc.comments.map(c=>`Rating: ${c.rating}/5 | ${c.text}`).join("\n\n").slice(0,12000);
     try {
-      const res = await fetch("/api/analyze-text", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ text:reviewText, label:loc.name, source:`csv_${groupBy}`, reviewCount:loc.commentCount, project_name:projectName||"default" }) });
+      const res = await fetch("/api/analyze-text", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ text:reviewText, label:loc.name, source:`csv_${groupBy}`, reviewCount:loc.commentCount, client_id: selectedClientId || undefined }) });
       const data = await res.json();
       setDeepDiveResults(prev=>({...prev,[loc.name]:data}));
     } catch(err) { console.error(err); }
@@ -481,7 +513,30 @@ export default function UploadPage() {
                 <div style={{ fontSize:12, color:C.textDim, fontFamily:"'Geist Mono', monospace", marginTop:4 }}>{totalReviews.toLocaleString()} reviews - {stats.length} groups - avg {overallAvg} stars</div>
               </div>
               <div style={{ display:"flex", gap:8 }}>
-                <input type="text" placeholder="Project name..." value={projectName} onChange={(e)=>setProjectName(e.target.value)} style={{ padding:"7px 12px", border:`1px solid ${C.border}`, borderRadius:8, fontSize:12, fontFamily:"'Geist Mono', monospace", color:C.textPrimary, background:C.bgCard, width:180, outline:"none" }} />
+                <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                  {!showNewClient ? (
+                    <select
+                      value={selectedClientId}
+                      onChange={(e) => {
+                        if (e.target.value === "__new__") { setShowNewClient(true); setSelectedClientId(""); }
+                        else setSelectedClientId(e.target.value);
+                      }}
+                      style={{ padding:"7px 10px", borderRadius:8, border:`1px solid ${C.border}`, background:"white", color: selectedClientId ? C.textPrimary : C.textDim, fontSize:12, fontFamily:"'Geist', sans-serif", outline:"none", cursor:"pointer" }}
+                    >
+                      <option value="">Tag to client...</option>
+                      {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      <option value="__new__">＋ New client</option>
+                    </select>
+                  ) : (
+                    <div style={{ display:"flex", gap:4 }}>
+                      <input autoFocus value={newClientName} onChange={e=>setNewClientName(e.target.value)}
+                        onKeyDown={e=>{ if(e.key==="Enter") createClient(); if(e.key==="Escape"){setShowNewClient(false);setNewClientName("");} }}
+                        placeholder="Client name..." style={{ padding:"7px 10px", borderRadius:8, border:`1px solid ${C.blue}`, background:"white", color:C.textPrimary, fontSize:12, fontFamily:"'Geist', sans-serif", outline:"none", width:150 }} />
+                      <button onClick={createClient} disabled={creatingClient||!newClientName.trim()} style={{ padding:"7px 12px", borderRadius:8, background:C.blue, color:"white", border:"none", fontSize:12, cursor:"pointer" }}>{creatingClient?"...":"Save"}</button>
+                      <button onClick={()=>{setShowNewClient(false);setNewClientName("");}} style={{ padding:"7px 8px", borderRadius:8, background:"transparent", color:C.textDim, border:`1px solid ${C.border}`, fontSize:12, cursor:"pointer" }}>✕</button>
+                    </div>
+                  )}
+                </div>
                 <a href="/dashboard" style={{ padding:"7px 16px", background:"#1a1a1a", borderRadius:8, color:"white", fontSize:12, fontWeight:600, textDecoration:"none", fontFamily:"'Geist', sans-serif", whiteSpace:"nowrap" }}>View Dashboard →</a>
                 <button onClick={()=>{setStep("upload");setRows([]);setStats([]);setFile(null);}} style={{ padding:"7px 14px", border:`1px solid ${C.border}`, borderRadius:8, background:"white", color:C.textSecondary, fontSize:12, cursor:"pointer", fontFamily:"'Geist', sans-serif" }}>New file</button>
               </div>
