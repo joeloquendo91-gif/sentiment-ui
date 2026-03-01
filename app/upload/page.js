@@ -496,7 +496,7 @@ export default function UploadPage() {
         {step==="dashboard" && fileType==="analyses" && (
           <>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, gap:8 }}>
-              <a href="/dashboard" style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 18px", background:"#1a1a1a", borderRadius:9, textDecoration:"none" }}>
+              <a href={`/dashboard${selectedClientId ? `?client_id=${selectedClientId}` : ""}`} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 18px", background:"#1a1a1a", borderRadius:9, textDecoration:"none" }}>
                 <span style={{ color:"white", fontWeight:600, fontSize:13, fontFamily:"'Geist', sans-serif" }}>View in Dashboard →</span>
               </a>
               <button onClick={()=>{setStep("upload");setRows([]);setFile(null);}} style={{ padding:"7px 14px", border:`1px solid ${C.border}`, borderRadius:8, background:"white", color:C.textSecondary, fontSize:12, cursor:"pointer", fontFamily:"'Geist', sans-serif" }}>New file</button>
@@ -537,7 +537,7 @@ export default function UploadPage() {
                     </div>
                   )}
                 </div>
-                <a href="/dashboard" style={{ padding:"7px 16px", background:"#1a1a1a", borderRadius:8, color:"white", fontSize:12, fontWeight:600, textDecoration:"none", fontFamily:"'Geist', sans-serif", whiteSpace:"nowrap" }}>View Dashboard →</a>
+                <a href={`/dashboard${selectedClientId ? `?client_id=${selectedClientId}` : ""}`} style={{ padding:"7px 16px", background:"#1a1a1a", borderRadius:8, color:"white", fontSize:12, fontWeight:600, textDecoration:"none", fontFamily:"'Geist', sans-serif", whiteSpace:"nowrap" }}>View Dashboard →</a>
                 <button onClick={()=>{setStep("upload");setRows([]);setStats([]);setFile(null);}} style={{ padding:"7px 14px", border:`1px solid ${C.border}`, borderRadius:8, background:"white", color:C.textSecondary, fontSize:12, cursor:"pointer", fontFamily:"'Geist', sans-serif" }}>New file</button>
               </div>
             </div>

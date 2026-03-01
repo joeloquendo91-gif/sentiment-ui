@@ -673,7 +673,7 @@ export default function Home() {
             {batchResults && (
               <div>
                 <BatchSummary results={batchResults} />
-                <a href="/dashboard" style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 20px", background:"#1a1a1a", borderRadius:10, textDecoration:"none", marginBottom:16 }}>
+                <a href={`/dashboard${selectedClientId ? `?client_id=${selectedClientId}` : ""}`} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 20px", background:"#1a1a1a", borderRadius:10, textDecoration:"none", marginBottom:16 }}>
                   <div>
                     <div style={{ color:"white", fontWeight:600, fontSize:14, fontFamily:"'Geist', sans-serif" }}>View in Dashboard →</div>
                     <div style={{ color:"rgba(255,255,255,0.45)", fontSize:12, fontFamily:"'Geist Mono', monospace", marginTop:2 }}>See all {batchResults.length} analyses alongside your data</div>
@@ -687,7 +687,7 @@ export default function Home() {
 
             {result && (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <a href="/dashboard" style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 20px", background:"#1a1a1a", borderRadius:10, textDecoration:"none", marginBottom:4 }}>
+                <a href={`/dashboard${selectedClientId ? `?client_id=${selectedClientId}` : ""}`} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 20px", background:"#1a1a1a", borderRadius:10, textDecoration:"none", marginBottom:4 }}>
                   <div>
                     <div style={{ color:"white", fontWeight:600, fontSize:14, fontFamily:"'Geist', sans-serif" }}>View in Dashboard →</div>
                     <div style={{ color:"rgba(255,255,255,0.45)", fontSize:12, fontFamily:"'Geist Mono', monospace", marginTop:2 }}>See this analysis alongside all your data</div>

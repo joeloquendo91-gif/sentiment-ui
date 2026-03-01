@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis } from "recharts";
 
 const C = {
@@ -60,6 +61,7 @@ function Card({ children, style = {} }) {
 export default function Dashboard() {
   const [clients, setClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
+  const searchParams = useSearchParams();
   const [analyses, setAnalyses] = useState([]);
   const [competitors, setCompetitors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -75,8 +77,13 @@ export default function Dashboard() {
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];
       setClients(list);
-      if (list.length > 0) setSelectedClient(list[0].id);
-      else setLoading(false);
+      const urlClientId = searchParams.get("client_id");
+      if (urlClientId && list.find(c => c.id === urlClientId)) {
+        setSelectedClient(urlClientId);
+      } else {
+        // Don't auto-select — let user choose
+        setLoading(false);
+      }
     } catch(err) {
       console.error("Failed to fetch clients:", err);
       setLoading(false);
@@ -241,12 +248,37 @@ export default function Dashboard() {
 
         {loading ? (
           <div style={{ textAlign:"center", padding:"80px 0", color:C.textDim, fontFamily:"'Geist Mono', monospace", fontSize:12 }}>Loading...</div>
+        ) : !selectedClient ? (
+          <div style={{ textAlign:"center", padding:"80px 24px" }}>
+            <div style={{ fontFamily:"'Libre Baskerville', serif", fontSize:26, fontWeight:700, color:C.textPrimary, marginBottom:10 }}>Select a client to get started</div>
+            <p style={{ fontSize:14, color:C.textDim, marginBottom:36, maxWidth:400, margin:"0 auto 36px" }}>Choose a client from the dropdown above to load their intelligence dashboard.</p>
+            {clients.length === 0 ? (
+              <div>
+                <p style={{ fontSize:13, color:C.textDim, marginBottom:20 }}>No clients yet. Create one first.</p>
+                <div style={{ display:"flex", gap:12, justifyContent:"center" }}>
+                  <a href="/clients" style={{ padding:"10px 20px", background:"#1a1a1a", color:"white", borderRadius:8, textDecoration:"none", fontSize:13, fontWeight:600 }}>Competitor Research →</a>
+                  <a href="/upload" style={{ padding:"10px 20px", border:`1px solid ${C.border}`, background:"white", color:C.textPrimary, borderRadius:8, textDecoration:"none", fontSize:13, fontWeight:600 }}>CSV Upload →</a>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:10, maxWidth:360, margin:"0 auto" }}>
+                {clients.map(c=>(
+                  <button key={c.id} onClick={()=>setSelectedClient(c.id)} style={{ padding:"14px 20px", background:"white", border:`1px solid ${C.border}`, borderRadius:10, cursor:"pointer", fontFamily:"'Geist', sans-serif", fontSize:14, fontWeight:600, color:C.textPrimary, textAlign:"left", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", transition:"all 0.15s" }}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor="#2563eb"; e.currentTarget.style.background="#f8faff";}}
+                    onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border; e.currentTarget.style.background="white";}}>
+                    <span>{c.name}</span>
+                    <span style={{ color:C.textDim, fontSize:12 }}>→</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         ) : clientAnalyses.length === 0 && competitorAnalyses.length === 0 ? (
           <div style={{ textAlign:"center", padding:"80px 0" }}>
-            <div style={{ fontFamily:"'Libre Baskerville', serif", fontSize:20, color:C.textDim, marginBottom:8 }}>No data yet</div>
-            <p style={{ fontSize:14, color:C.textDim, marginBottom:24 }}>Scrape competitor URLs or upload a CSV to populate this dashboard.</p>
+            <div style={{ fontFamily:"'Libre Baskerville', serif", fontSize:20, color:C.textDim, marginBottom:8 }}>No data yet for {currentClient?.name}</div>
+            <p style={{ fontSize:14, color:C.textDim, marginBottom:24 }}>Scrape competitor URLs or upload a CSV tagged to this client.</p>
             <div style={{ display:"flex", gap:12, justifyContent:"center" }}>
-              <a href="/clients" style={{ padding:"9px 18px", background:"#1a1a1a", color:"white", borderRadius:8, textDecoration:"none", fontSize:13, fontWeight:600 }}>Go to Clients →</a>
+              <a href="/clients" style={{ padding:"9px 18px", background:"#1a1a1a", color:"white", borderRadius:8, textDecoration:"none", fontSize:13, fontWeight:600 }}>Competitor Research →</a>
               <a href="/upload" style={{ padding:"9px 18px", border:`1px solid ${C.border}`, background:"white", color:C.textPrimary, borderRadius:8, textDecoration:"none", fontSize:13, fontWeight:600 }}>CSV Upload →</a>
             </div>
           </div>
