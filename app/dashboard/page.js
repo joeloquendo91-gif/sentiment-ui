@@ -12,7 +12,7 @@ const SENTIMENT_BG = { positive: "#f0fdf4", negative: "#fef2f2", mixed: "#fffbeb
 const SENTIMENT_BORDER = { positive: "#bbf7d0", negative: "#fecaca", mixed: "#fde68a", neutral: "#e5e7eb" };
 const SOURCE_COLOR = { google: "#4285f4", yelp: "#d32323", healthgrades: "#2a7bb5", reddit: "#ff4500", trustpilot: "#00b67a", other: "#6b7280" };
 
-function safeJSON(str) { try { return JSON.parse(str); } catch { return []; } }
+function safeJSON(val) { if (Array.isArray(val)) return val; try { return JSON.parse(val) || []; } catch { return []; } }
 
 function FreqBar({ label, count, max, color }) {
   const pct = max ? Math.round((count/max)*100) : 0;
