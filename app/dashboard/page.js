@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, RadarChart, Radar, PolarGrid, PolarAngleAxis } from "recharts";
 
@@ -58,7 +58,7 @@ function Card({ children, style = {} }) {
   );
 }
 
-export default function Dashboard() {
+function DashboardInner() {
   const [clients, setClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
   const searchParams = useSearchParams();
@@ -485,4 +485,8 @@ export default function Dashboard() {
       </main>
     </>
   );
+}
+
+export default function Dashboard() {
+  return <Suspense fallback={<div style={{ padding:80, textAlign:"center", color:"#a8a89e", fontFamily:"'Geist Mono', monospace", fontSize:12 }}>Loading...</div>}><DashboardInner /></Suspense>;
 }
